@@ -48,8 +48,8 @@ public class MainActivity extends Activity implements Player.Listener {
     Player pl;
     int skin; boolean monoFont;
     // Themes. The last one is a secret: it unlocks when you play something from Undertale or Deltarune.
-    static final String[] TN = {"iPod Classic", "Windows XP", "Windows 95", "Game Boy", "Winamp", "Cassette", "iTunes 2011", "* ???"};
-    static final int ITUNES = 6, SECRET = 7;
+    static final String[] TN = {"iPod Classic", "Windows XP", "Windows 95", "Game Boy", "Winamp", "Cassette", "iTunes 2011", "Zune", "Walkman", "PSP", "Windows Media Player 11", "Nokia", "* ???"};
+    static final int ITUNES = 6, ZUNE = 7, WALKMAN = 8, PSP = 9, WMP = 10, NOKIA = 11, SECRET = 12;
     Song pending; View view;
     final Random rnd = new Random();
     final Handler h = new Handler(Looper.getMainLooper());
@@ -132,11 +132,13 @@ public class MainActivity extends Activity implements Player.Listener {
         monoFont = s == 3 || s == 4 || s == SECRET;
         View v;
         if (s == 0) v = new IPod(this); else if (s == 1) v = new Xp(this); else if (s == ITUNES) v = new ITunes(this);
+        else if (s == ZUNE) v = new Zune(this); else if (s == WALKMAN) v = new Walkman(this); else if (s == PSP) v = new Psp(this);
+        else if (s == WMP) v = new Wmp(this); else if (s == NOKIA) v = new Nokia(this);
         else if (s == SECRET) v = new Ut(this); else v = new Retro(this, s);
         closeAll();
         view = v; root = new FrameLayout(this); root.addView(v); setContentView(root);
-        int bar = s == 0 ? 0xFFEDEDF0 : s == 1 ? 0xFF0B4FC8 : (s == SECRET || s == ITUNES) ? BLACK : RP[s - 2][0];
-        int nav = s == 0 ? 0xFFEDEDF0 : s == 1 ? 0xFF1941A5 : bar;
+        int bar = s == 0 ? 0xFFEDEDF0 : s == 1 ? 0xFF0B4FC8 : s >= 2 && s <= 5 ? RP[s - 2][0] : s == WALKMAN ? 0xFF232838 : s == NOKIA ? 0xFF0A0F1C : s == PSP ? 0xFF2A2A2A : BLACK;
+        int nav = s == 0 ? 0xFFEDEDF0 : s == 1 ? 0xFF1941A5 : s == WALKMAN ? 0xFF0D0F15 : bar;
         getWindow().setStatusBarColor(bar); getWindow().setNavigationBarColor(nav);
         getWindow().getDecorView().setSystemUiVisibility(s == 0 || (s >= 2 && s < ITUNES && lum(bar) > 140) ? 0x2010 : 0);
     }
@@ -178,6 +180,8 @@ public class MainActivity extends Activity implements Player.Listener {
         } catch (Throwable e) { }
         final int tdMenu = it.getIntExtra("td_menu", 0), tdTab = it.getIntExtra("td_tab", -1), tdSlide = it.getIntExtra("td_wrapped", -1);
         if (tdTab >= 0 && view instanceof ITunes) { ((ITunes) view).tab = tdTab; view.invalidate(); }
+        if (tdTab >= 0 && view instanceof Skin) { ((Skin) view).tab = tdTab; view.invalidate(); }
+        if (it.getBooleanExtra("td_now", false) && view instanceof Wmp) { ((Wmp) view).nowView = true; view.invalidate(); }
         if (tdMenu > 0 || tdSlide >= 0) h.postDelayed(new Runnable() { public void run() {
             if (tdSlide >= 0) openWrapped(tdSlide);
             else if (tdMenu == 1) mainMenu(); else if (tdMenu == 2 && !all.isEmpty()) songMenu(all, 0, null); else if (tdMenu == 3) pickDifficulty(null);
@@ -196,7 +200,7 @@ public class MainActivity extends Activity implements Player.Listener {
     }
 
     // ---------- Undertale font: bundled Determination (CC BY 3.0), or a font file you load ----------
-    Typeface utFont = Typeface.MONOSPACE, logoFore, logoBack; int utGrid; String utName = "Monospace"; float utAdv = 1f;
+    Typeface utFont = Typeface.MONOSPACE, logoFore, logoBack, pixFont = Typeface.MONOSPACE; int utGrid; String utName = "Monospace"; float utAdv = 1f;
 
     void loadUtFont() {
         Typeface t = null; utGrid = 0;
@@ -205,6 +209,7 @@ public class MainActivity extends Activity implements Player.Listener {
         if (t == null) try { t = Typeface.createFromAsset(getAssets(), "PressStart2P.ttf"); utGrid = 8; utName = "Press Start 2P"; } catch (Throwable e) { t = Typeface.MONOSPACE; utGrid = 0; }
         utFont = t;
         try { logoFore = Typeface.createFromAsset(getAssets(), "MonsterFriendFore.otf"); logoBack = Typeface.createFromAsset(getAssets(), "MonsterFriendBack.otf"); } catch (Throwable e) { logoFore = null; logoBack = null; }
+        try { pixFont = Typeface.createFromAsset(getAssets(), "PressStart2P.ttf"); } catch (Throwable e) { pixFont = Typeface.MONOSPACE; }
         Paint m = new Paint(); m.setTypeface(t); m.setTextSize(120); utAdv = Math.max(.3f, m.measureText("M") / 120f);
     }
 
@@ -629,7 +634,8 @@ public class MainActivity extends Activity implements Player.Listener {
 
     final Runnable tick = new Runnable() { public void run() {
         if (view != null) view.invalidate();
-        h.postDelayed(this, skin == SECRET || (skin >= 1 && skin != ITUNES && playing()) ? 40 : 250);
+        boolean anim = skin == SECRET || skin == PSP || (playing() && (skin >= 1 && skin <= 5 || skin == WALKMAN || skin == WMP));
+        h.postDelayed(this, anim ? 40 : skin == NOKIA ? 80 : 250);
     }};
 
 
@@ -653,7 +659,7 @@ public class MainActivity extends Activity implements Player.Listener {
         try { ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(v.getWindowToken(), 0); } catch (Throwable e) { }
     }
 
-    static final class St { int kind, bg, bg2, border, bar0, bar1, barFg, fg, sub, sel, sel2, selFg, danger = 0xFFD03030; float rad, bw, size; Typeface tf, tfm; }
+    static final class St { int kind, bg, bg2, border, bar0, bar1, barFg, fg, sub, sel, sel2, selFg, danger = 0xFFD03030; float rad, bw, size; Typeface tf, tfm; boolean lower; }
 
     St style() {
         St s = new St(); s.kind = skin; s.size = d(16.5f);
@@ -673,6 +679,16 @@ public class MainActivity extends Activity implements Player.Listener {
                 s.sel = s.sel2 = 0xFFC8460F; s.selFg = 0xFFFFF3D6; s.rad = d(6); s.bw = d(2.5f); break;
             case ITUNES: s.bg = 0xF2283442; s.bg2 = WHITE; s.border = 0xFF0F141B; s.barFg = 0xFFE3E7EE; s.fg = 0xFF1C1C1C; s.sub = 0xFF9AA3B2;
                 s.sel = 0xFF5D9AF3; s.sel2 = 0xFF1D5BCF; s.selFg = WHITE; s.rad = d(9); s.bw = d(1); s.size = d(17.5f); break;
+            case ZUNE: s.bg = 0xFF111111; s.bg2 = 0xFF000000; s.border = 0xFF111111; s.bar0 = s.bar1 = 0xFF111111; s.barFg = WHITE; s.fg = WHITE; s.sub = 0xFF8A8A8A;
+                s.sel = s.sel2 = 0xFFEC008C; s.selFg = WHITE; s.rad = 0; s.bw = d(1); s.tf = s.tfm = Typeface.create("sans-serif-light", Typeface.NORMAL); s.size = d(20); s.lower = true; break;
+            case WALKMAN: s.bg = 0xFFF4EEDC; s.bg2 = 0xFFFFFBEF; s.border = 0xFF1E2E6B; s.bar0 = 0xFFFFA04A; s.bar1 = 0xFFD25A00; s.barFg = WHITE; s.fg = 0xFF1E2E6B; s.sub = 0xFF6A6F8F;
+                s.sel = s.sel2 = 0xFF1E2E6B; s.selFg = 0xFFF4EEDC; s.rad = d(6); s.bw = d(2); s.tf = Typeface.create("casual", Typeface.BOLD); s.tfm = Typeface.create("casual", Typeface.NORMAL); s.size = d(17.5f); break;
+            case PSP: s.bg = 0xF2161E30; s.bg2 = 0xFF222C42; s.border = 0x66FFFFFF; s.bar0 = 0xF2263250; s.bar1 = 0xF2161E30; s.barFg = WHITE; s.fg = WHITE; s.sub = 0xFFB8C2D6;
+                s.sel = 0x55FFFFFF; s.sel2 = 0x22FFFFFF; s.selFg = WHITE; s.rad = d(14); s.bw = d(1); s.tf = s.tfm = Typeface.create("sans-serif-light", Typeface.NORMAL); s.size = d(18); break;
+            case WMP: s.bg = WHITE; s.bg2 = 0xFFF4F7FB; s.border = 0xFF39424F; s.bar0 = 0xFF40464F; s.bar1 = 0xFF0B0C0E; s.barFg = WHITE; s.fg = 0xFF1A1A1A; s.sub = 0xFF6A7380;
+                s.sel = 0xFFEAF3FD; s.sel2 = 0xFFC4DDF9; s.selFg = 0xFF0B2A55; s.rad = d(6); s.bw = d(1.5f); break;
+            case NOKIA: s.bg = 0xFFB4CC8E; s.bg2 = 0xFFC4D99E; s.border = 0xFF263018; s.bar0 = s.bar1 = 0xFF263018; s.barFg = 0xFFB4CC8E; s.fg = 0xFF263018; s.sub = 0xFF4A5A32;
+                s.sel = s.sel2 = 0xFF263018; s.selFg = 0xFFB4CC8E; s.rad = d(4); s.bw = d(3); s.tf = s.tfm = pixFont; s.size = Math.max(8, Math.round(d(8) / 8f) * 8); break;
             default: s.bg = BLACK; s.bg2 = BLACK; s.border = WHITE; s.barFg = WHITE; s.fg = WHITE; s.sub = 0xFFBBBBBB; s.sel = s.sel2 = BLACK; s.selFg = 0xFFFFFF00;
                 s.danger = 0xFFFF4040; s.rad = 0; s.bw = d(4); s.tf = utFont; s.tfm = utFont; s.size = utSize(9);
         }
@@ -821,7 +837,8 @@ public class MainActivity extends Activity implements Player.Listener {
                         p.setShader(lg(0, r.top, 0, r.top + th, st.bar0, st.bar1)); c.drawRect(r.left, r.top, r.right, r.top + th, p); p.setShader(null);
                         if (st.kind == 4) { p.setColor(0x33FFD84A); for (int k = 0; k < 4; k++) c.drawRect(r.left + d(8), r.top + d(11) + k * d(5), r.left + d(28), r.top + d(12.5f) + k * d(5), p); }
                         c.restore();
-                        text(c, st.kind == 3 ? title.toUpperCase(Locale.US) : title, r.left + d(st.kind == 4 ? 36 : 14), r.top + th * .66f, st.size, st.barFg, st.tf, Paint.Align.LEFT, r.width() - d(48));
+                        String tt = st.kind == 3 ? title.toUpperCase(Locale.US) : st.lower ? title.toLowerCase(Locale.ROOT) : title;
+                        text(c, tt, r.left + d(st.kind == 4 ? 36 : 14), r.top + th * .66f, st.lower ? st.size * 1.3f : st.size, st.barFg, st.tf, Paint.Align.LEFT, r.width() - d(48));
                     }
                     p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(st.bw); p.setColor(st.border); c.drawRoundRect(r, rad, rad, p); p.setStyle(Paint.Style.FILL);
                     if (st.kind == 5) { p.setColor(0xFF8A7656); float k = d(7); c.drawCircle(r.left + k, r.bottom - k, d(2.5f), p); c.drawCircle(r.right - k, r.bottom - k, d(2.5f), p); }
@@ -846,7 +863,7 @@ public class MainActivity extends Activity implements Player.Listener {
                 if (pr || ck) text(c, "▶", l + d(10), ry + rowH * .64f, st.size, col, Typeface.DEFAULT_BOLD, Paint.Align.LEFT, 0);
                 x = l + d(30);
             }
-            String s = ut ? "* " + items[i] : items[i];
+            String s = ut ? "* " + items[i] : st.lower ? items[i].toLowerCase(Locale.ROOT) : items[i];
             text(c, s, x, ry + rowH * .63f, st.size, col, ut ? utFont : (i == checked || st.kind == 0 ? st.tf : (st.tfm == null ? st.tf : st.tf)), Paint.Align.LEFT, r - x - d(ck && !ut && !gb ? 40 : 14));
             if (ck && !ut && !gb) text(c, "✓", r - d(16), ry + rowH * .64f, st.size * 1.1f, pr ? st.selFg : st.sel2, Typeface.DEFAULT_BOLD, Paint.Align.RIGHT, 0);
             if (!ut && i < items.length - 1 && !pr) { p.setColor((st.fg & 0xFFFFFF) | 0x22000000); c.drawRect(l + d(12), ry + rowH - d(1), r - d(12), ry + rowH, p); }
@@ -3123,4 +3140,808 @@ public class MainActivity extends Activity implements Player.Listener {
             return true;
         }
     }
+
+    // =====================================================================
+    //  Base for the newer themes. A theme only draws; it registers buttons / list / seek areas while
+    //  drawing and this class handles touch, scrolling, tabs (Songs / Artists / Albums / Playlists) and seeking.
+    // =====================================================================
+    abstract class Skin extends View implements Scrolly {
+        static final int B_PREV = 1, B_PLAY = 2, B_NEXT = 3, B_SHUF = 4, B_REP = 5, B_MENU = 6, B_BROWSE = 7, B_FAV = 8, B_BACK = 9, B_STOP = 14, B_SEARCH = 15, B_TAB = 20;
+        final TextPaint p = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        final RectF tmp = new RectF(), list = new RectF(), seek = new RectF(), vol = new RectF();
+        final Fling fl = new Fling();
+        final ArrayList<RectF> br = new ArrayList<>(); final ArrayList<Integer> bid = new ArrayList<>();
+        int tab, drill = -1, backTab, mode, pressed = -1, pressRow = -1;
+        float off, rowH = 60, maxOff, seekF = -1, downX, downY, lastY, dt; boolean moved, lpFired;
+        long last = SystemClock.uptimeMillis();
+
+        Skin(Context c) { super(c); }
+
+        public void top() { off = 0; fl.stop(); backTab = drill >= 0 ? drill : 0; drill = -1; if (fk != F_ALL) tab = 0; }
+
+        boolean back() {
+            if (fk != F_ALL) { int b = backTab; setFilter(F_ALL, null); tab = b; invalidate(); return true; }
+            if (tab != 0) { tab = 0; top(); invalidate(); return true; }
+            return false;
+        }
+
+        void begin() {
+            br.clear(); bid.clear(); list.setEmpty(); seek.setEmpty(); vol.setEmpty();
+            long t = SystemClock.uptimeMillis(); dt = Math.min(50, t - last) / 1000f; last = t;
+            p.reset(); p.setAntiAlias(true);
+        }
+        void btn(int id, RectF r) { br.add(new RectF(r)); bid.add(id); }
+        boolean down(int id) { return mode == 4 && pressed == id; }
+
+        // ----- rows of the current tab -----
+        int count() { return tab == 0 ? filtered().size() : tab == 1 ? artistNames().size() : tab == 2 ? albumNames().size() : playlists.size() + 1; }
+        boolean isNew(int i) { return tab == 3 && i == 0; }
+        String name(int i) { return tab == 1 ? artistNames().get(i) : tab == 2 ? albumNames().get(i) : playlistNames().get(i - 1); }
+        String title(int i) { if (tab == 0) return filtered().get(i).title; if (isNew(i)) return "New Playlist..."; return name(i); }
+        String sub(int i) {
+            if (tab == 0) return filtered().get(i).artist;
+            if (isNew(i)) return "";
+            String n = name(i);
+            if (tab == 1) { int k = songCount(n); return k + (k == 1 ? " song" : " songs"); }
+            if (tab == 2) { Song r = repOf(false, n); return r == null ? "" : r.artist; }
+            int k = filter(F_PLAYLIST, n).size(); return k + (k == 1 ? " song" : " songs");
+        }
+        Song song(int i) {
+            if (tab == 0) return filtered().get(i);
+            if (isNew(i)) return null;
+            if (tab == 3) { ArrayList<Song> l = filter(F_PLAYLIST, name(i)); return l.isEmpty() ? null : l.get(0); }
+            return repOf(tab == 1, name(i));
+        }
+        boolean current(int i) { return tab == 0 && filtered().get(i).equals(now()); }
+        String tabName(int t) { return new String[]{"Songs", "Artists", "Albums", "Playlists"}[t]; }
+        String header() { return fk != F_ALL ? label(fk, fv) : tabName(tab); }
+
+        /** Call while drawing the list: registers the scrollable area, returns the scroll offset. */
+        float listArea(RectF r, float rh) { list.set(r); rowH = rh; maxOff = Math.max(0, count() * rh - r.height()); off = fl.apply(off, maxOff, this); return off; }
+        int rowAt(float y) { int i = (int) Math.floor((y - list.top + off) / rowH); return y >= list.top && y <= list.bottom && i >= 0 && i < count() ? i : -1; }
+        boolean rowDown(int i) { return mode == 1 && pressRow == i && !moved; }
+        float seekFrac() { int du = dur(); return seekF >= 0 ? seekF : du > 0 ? Math.min(1f, pos() / (float) du) : 0; }
+        int seekPos() { return seekF >= 0 ? (int) (seekF * dur()) : pos(); }
+
+        void tapRow(int i) {
+            if (tab == 0) { ArrayList<Song> l = filtered(); if (i >= l.size()) return; if (l.get(i).equals(now())) toggle(); else playList(l, i); return; }
+            if (isNew(i)) { newPlaylist(null); return; }
+            drill = tab; String n = name(i); setFilter(tab == 1 ? F_ARTIST : tab == 2 ? F_ALBUM : F_PLAYLIST, n);
+        }
+        void longRow(int i) { if (tab == 0) songMenu(new ArrayList<>(filtered()), i); else if (tab == 3 && !isNew(i)) playlistMenu(name(i)); }
+        void setTab(int t) { if (t != 0 && fk != F_ALL) setFilter(F_ALL, null); tab = t; off = 0; fl.stop(); invalidate(); }
+
+        /** Shared button actions. Themes override for their own ids and call super. */
+        void onButton(int id) {
+            if (id == B_PREV) prev(); else if (id == B_PLAY) toggle(); else if (id == B_NEXT) next(true); else if (id == B_STOP) stop();
+            else if (id == B_SHUF) pl.setShuffle(!pl.shuffle); else if (id == B_REP) pl.cycleRepeat();
+            else if (id == B_MENU) mainMenu(); else if (id == B_BROWSE) pickFilter(); else if (id == B_SEARCH) search();
+            else if (id == B_FAV) { if (now() != null) toggleFav(now()); }
+            else if (id == B_BACK) { if (!back()) pickFilter(); }
+            else if (id >= B_TAB && id < B_TAB + 4) setTab(id - B_TAB);
+        }
+        void onKey() { }   // a button was pressed (themes can click / beep)
+
+        final Runnable lp = new Runnable() { public void run() {
+            if (mode != 1 || moved) return;
+            int i = rowAt(downY); if (i < 0) return;
+            lpFired = true; performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); invalidate(); longRow(i);
+        }};
+
+        boolean near(RectF r, float x, float y, float px, float py) { return !r.isEmpty() && x >= r.left - px && x <= r.right + px && y >= r.top - py && y <= r.bottom + py; }
+        float frac(RectF r, float x) { return Math.max(0, Math.min(1, (x - r.left) / r.width())); }
+        RectF rectOf(int id) { for (int i = bid.size() - 1; i >= 0; i--) if (bid.get(i) == id) return br.get(i); return null; }
+
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            float x = e.getX(), y = e.getY();
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN: {
+                    mode = 0; moved = false; lpFired = false; downX = x; downY = y; lastY = y; pressed = -1; pressRow = -1; fl.down(e);
+                    for (int i = br.size() - 1; i >= 0; i--) if (br.get(i).contains(x, y)) { pressed = bid.get(i); mode = 4; break; }
+                    if (mode == 0 && near(seek, x, y, d(12), d(16))) { mode = 2; seekF = frac(seek, x); }
+                    else if (mode == 0 && near(vol, x, y, d(8), d(14))) { mode = 3; pl.setVol(frac(vol, x)); }
+                    else if (mode == 0 && list.contains(x, y)) { mode = 1; pressRow = rowAt(y); postDelayed(lp, ViewConfiguration.getLongPressTimeout()); }
+                    invalidate(); return true;
+                }
+                case MotionEvent.ACTION_MOVE: {
+                    if (mode == 2) seekF = frac(seek, x);
+                    else if (mode == 3) pl.setVol(frac(vol, x));
+                    else if (mode == 1) {
+                        if (Math.abs(y - downY) > d(8)) { moved = true; removeCallbacks(lp); }
+                        if (moved) off -= y - lastY;
+                        lastY = y;
+                    } else if (mode == 4 && pressed >= 0) { RectF r = rectOf(pressed); if (r == null || !r.contains(x, y)) pressed = -1; }
+                    fl.move(e); invalidate(); return true;
+                }
+                case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL: {
+                    removeCallbacks(lp);
+                    boolean up = e.getActionMasked() == MotionEvent.ACTION_UP;
+                    fl.up(e, up && mode == 1 && moved, this);
+                    if (up && mode == 2 && pl.loaded() && dur() > 0) seekTo((int) (seekF * dur()));
+                    seekF = -1;
+                    if (up && mode == 4 && pressed >= 0) { int id = pressed; pressed = -1; onKey(); onButton(id); }
+                    else if (up && mode == 1 && !moved && !lpFired) { int i = rowAt(y); if (i >= 0) tapRow(i); }
+                    pressed = -1; pressRow = -1; mode = 0; invalidate(); return true;
+                }
+            }
+            return true;
+        }
+
+        // ----- drawing helpers -----
+        void tx(Canvas c, String s, float x, float y, float size, int col, Typeface tf, Paint.Align al, float maxW) {
+            p.setShader(null); p.setStyle(Paint.Style.FILL); p.setTypeface(tf); p.setTextSize(size); p.setColor(col); p.setTextAlign(al);
+            if (maxW > 0) s = TextUtils.ellipsize(s, p, maxW, TextUtils.TruncateAt.END).toString();
+            c.drawText(s, x, y, p);
+        }
+        float tw(String s, float size, Typeface tf) { p.setTypeface(tf); p.setTextSize(size); return p.measureText(s); }
+
+        void art(Canvas c, Song s, RectF r, int bg, int fg) {
+            Bitmap a = artFor(s);
+            if (a != null) { p.setShader(null); p.setFilterBitmap(true); c.drawBitmap(a, new Rect(0, 0, a.getWidth(), a.getHeight()), r, p); p.setFilterBitmap(false); return; }
+            p.setShader(null); p.setStyle(Paint.Style.FILL); p.setColor(bg); c.drawRect(r, p);
+            tx(c, "♫", r.centerX(), r.centerY() + r.height() * .17f, r.height() * .48f, fg, Typeface.DEFAULT_BOLD, Paint.Align.CENTER, 0);
+        }
+
+        void fill(int col) { p.setShader(null); p.setStyle(Paint.Style.FILL); p.setColor(col); }
+        void stroke(int col, float w) { p.setShader(null); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(w); p.setColor(col); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeJoin(Paint.Join.ROUND); }
+
+        void gPlay(Canvas c, float cx, float cy, float s, int col) { fill(col); tri(c, p, cx + s * .08f, cy, s, 1); }
+        void gPause(Canvas c, float cx, float cy, float s, int col) { fill(col); c.drawRect(cx - s * .38f, cy - s * .5f, cx - s * .1f, cy + s * .5f, p); c.drawRect(cx + s * .1f, cy - s * .5f, cx + s * .38f, cy + s * .5f, p); }
+        void gToggle(Canvas c, float cx, float cy, float s, int col) { if (playing()) gPause(c, cx, cy, s, col); else gPlay(c, cx, cy, s, col); }
+        void gPrev(Canvas c, float cx, float cy, float s, int col) { fill(col); c.drawRect(cx - s * .55f, cy - s * .4f, cx - s * .42f, cy + s * .4f, p); tri(c, p, cx - s * .12f, cy, s * .7f, -1); tri(c, p, cx + s * .32f, cy, s * .7f, -1); }
+        void gNext(Canvas c, float cx, float cy, float s, int col) { fill(col); tri(c, p, cx - s * .32f, cy, s * .7f, 1); tri(c, p, cx + s * .12f, cy, s * .7f, 1); c.drawRect(cx + s * .42f, cy - s * .4f, cx + s * .55f, cy + s * .4f, p); }
+        void gStop(Canvas c, float cx, float cy, float s, int col) { fill(col); c.drawRect(cx - s * .38f, cy - s * .38f, cx + s * .38f, cy + s * .38f, p); }
+        void gShuffle(Canvas c, float cx, float cy, float s, int col) {
+            stroke(col, Math.max(d(1.6f), s * .1f));
+            c.drawLine(cx - s * .5f, cy - s * .28f, cx + s * .3f, cy + s * .28f, p); c.drawLine(cx - s * .5f, cy + s * .28f, cx + s * .3f, cy - s * .28f, p);
+            fill(col); tri(c, p, cx + s * .4f, cy - s * .28f, s * .32f, 1); tri(c, p, cx + s * .4f, cy + s * .28f, s * .32f, 1);
+        }
+        void gRepeat(Canvas c, float cx, float cy, float s, int col, int rep) {
+            stroke(col, Math.max(d(1.6f), s * .1f)); tmp.set(cx - s * .5f, cy - s * .3f, cx + s * .5f, cy + s * .3f); c.drawRoundRect(tmp, s * .22f, s * .22f, p);
+            fill(col); tri(c, p, cx + s * .12f, cy - s * .3f, s * .3f, 1);
+            if (rep == 2) tx(c, "1", cx, cy + s * .18f, s * .5f, col, Typeface.DEFAULT_BOLD, Paint.Align.CENTER, 0);
+        }
+        void gHeart(Canvas c, float cx, float cy, float s, int col, boolean full) {
+            Path h0 = new Path(); h0.moveTo(cx, cy + s * .45f);
+            h0.cubicTo(cx - s * .9f, cy - s * .1f, cx - s * .45f, cy - s * .75f, cx, cy - s * .3f);
+            h0.cubicTo(cx + s * .45f, cy - s * .75f, cx + s * .9f, cy - s * .1f, cx, cy + s * .45f); h0.close();
+            if (full) { fill(col); c.drawPath(h0, p); } else { stroke(col, Math.max(d(1.5f), s * .1f)); c.drawPath(h0, p); p.setStyle(Paint.Style.FILL); }
+        }
+        boolean on() { return playing(); }
+    }
+
+    // =====================================================================
+    //  Zune (Metro): black, huge lowercase type, pivot headers, magenta accent
+    // =====================================================================
+    class Zune extends Skin {
+        static final int MAG = 0xFFEC008C, GRAY = 0xFF8A8A8A, DIM = 0xFF4A4A4A;
+        final Typeface light = Typeface.create("sans-serif-light", Typeface.NORMAL), reg = Typeface.create("sans-serif", Typeface.NORMAL);
+        float pivot;
+        Zune(Context c) { super(c); }
+
+        void circle(Canvas c, int id, float cx, float cy, float r, int glyph) {
+            tmp.set(cx - r - d(4), cy - r - d(4), cx + r + d(4), cy + r + d(4)); btn(id, tmp);
+            boolean dn = down(id);
+            if (dn) { fill(WHITE); c.drawCircle(cx, cy, r, p); }
+            stroke(WHITE, d(2)); c.drawCircle(cx, cy, r, p);
+            int g = dn ? BLACK : WHITE; float s = r * .75f;
+            if (glyph == 0) gPrev(c, cx, cy, s, g); else if (glyph == 1) gToggle(c, cx, cy, s, g); else gNext(c, cx, cy, s, g);
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            begin(); float W = getWidth(), H = getHeight(), m = d(20); Song np = now();
+            c.drawColor(BLACK);
+            pivot += (tab - pivot) * Math.min(1, dt * 9); if (Math.abs(tab - pivot) > .002f) postInvalidateOnAnimation();
+            String big = fk != F_ALL ? label(fk, fv).toLowerCase(Locale.ROOT) : "music";
+            tx(c, big, m - d(8) - pivot * d(40), d(100), d(92), WHITE, light, Paint.Align.LEFT, 0);
+            tmp.set(W - d(118), d(6), W - d(62), d(40)); btn(B_SEARCH, tmp);
+            tx(c, "search", tmp.centerX(), tmp.centerY() + d(5), d(14), down(B_SEARCH) ? MAG : GRAY, reg, Paint.Align.CENTER, 0);
+            tmp.set(W - d(58), d(6), W - d(8), d(40)); btn(B_MENU, tmp);
+            fill(down(B_MENU) ? MAG : WHITE); for (int i = -1; i <= 1; i++) c.drawCircle(tmp.centerX() + i * d(8), tmp.centerY(), d(2.6f), p);
+            // pivot headers: the selected one sits on the left, the rest follow (Metro style)
+            float hy = d(152), x = m;
+            if (fk != F_ALL) {
+                String bk = "‹ " + tabName(backTab).toLowerCase(Locale.ROOT); float w0 = tw(bk, d(30), light);
+                tmp.set(x - d(6), hy - d(34), x + w0 + d(6), hy + d(10)); btn(B_BACK, tmp);
+                tx(c, bk, x, hy, d(30), down(B_BACK) ? MAG : WHITE, light, Paint.Align.LEFT, 0);
+                x += w0 + d(22); tx(c, "browse", x, hy, d(30), down(B_BROWSE) ? MAG : DIM, light, Paint.Align.LEFT, 0);
+                tmp.set(x - d(6), hy - d(34), x + tw("browse", d(30), light) + d(6), hy + d(10)); btn(B_BROWSE, tmp);
+            } else for (int k = 0; k < 4; k++) {
+                int t = (tab + k) % 4; String s = tabName(t).toLowerCase(Locale.ROOT); float w0 = tw(s, d(30), light);
+                tmp.set(x - d(6), hy - d(34), x + w0 + d(6), hy + d(10)); btn(B_TAB + t, tmp);
+                tx(c, s, x, hy, d(30), k == 0 ? WHITE : (down(B_TAB + t) ? MAG : DIM), light, Paint.Align.LEFT, 0);
+                x += w0 + d(22); if (x > W) break;
+            }
+            // list
+            float panelH = d(178), lt = d(172), lb = H - panelH;
+            boolean songs = tab == 0; float rh = d(songs ? 66 : 74);
+            tmp.set(0, lt, W, lb); float o = listArea(tmp, rh); int n = count();
+            c.save(); c.clipRect(list);
+            if (n == 0) tx(c, all.isEmpty() ? "no music on this phone yet" : "nothing here", m, lt + d(48), d(22), GRAY, light, Paint.Align.LEFT, W - 2 * m);
+            for (int i = Math.max(0, (int) (o / rh)); i < n; i++) {
+                float ry = lt + i * rh - o; if (ry > lb) break;
+                boolean dn = rowDown(i), cur = current(i);
+                float tx0 = m;
+                if (!songs) { tmp.set(m, ry + d(8), m + rh - d(16), ry + rh - d(8)); if (isNew(i)) { fill(MAG); c.drawRect(tmp, p); tx(c, "+", tmp.centerX(), tmp.centerY() + d(13), d(40), WHITE, light, Paint.Align.CENTER, 0); } else art(c, song(i), tmp, 0xFF222222, DIM); tx0 = tmp.right + d(14); }
+                tx(c, songs ? title(i) : title(i).toLowerCase(Locale.ROOT), tx0, ry + rh * .48f, d(songs ? 23 : 25), dn || cur ? MAG : WHITE, light, Paint.Align.LEFT, W - tx0 - m);
+                String sb = sub(i); if (!sb.isEmpty()) tx(c, songs ? sb.toLowerCase(Locale.ROOT) : sb, tx0, ry + rh * .48f + d(22), d(14), GRAY, reg, Paint.Align.LEFT, W - tx0 - m);
+                if (songs && fav(filtered().get(i))) gHeart(c, W - m - d(6), ry + rh * .42f, d(12), MAG, true);
+            }
+            c.restore();
+            // now playing
+            float y0 = lb; fill(0xFF0C0C0C); c.drawRect(0, y0, W, H, p);
+            tmp.set(m, y0 + d(14), m + d(78), y0 + d(92)); if (np != null) art(c, np, tmp, 0xFF222222, DIM); else { fill(0xFF1A1A1A); c.drawRect(tmp, p); }
+            float ix = tmp.right + d(14), iw = W - ix - m - d(34);
+            tx(c, np == null ? "nothing playing" : np.title.toLowerCase(Locale.ROOT), ix, y0 + d(42), d(22), WHITE, light, Paint.Align.LEFT, iw);
+            tx(c, np == null ? "tap a song" : np.artist.toLowerCase(Locale.ROOT), ix, y0 + d(66), d(15), GRAY, reg, Paint.Align.LEFT, iw);
+            tx(c, np == null ? "" : np.album.toLowerCase(Locale.ROOT), ix, y0 + d(86), d(13), DIM, reg, Paint.Align.LEFT, iw);
+            tmp.set(W - m - d(32), y0 + d(28), W - m + d(4), y0 + d(62)); btn(B_FAV, tmp); gHeart(c, tmp.centerX(), tmp.centerY(), d(15), fav(np) ? MAG : GRAY, fav(np));
+            float sy = y0 + d(108); seek.set(m, sy - d(2), W - m, sy + d(2));
+            fill(0xFF333333); c.drawRect(m, sy - d(1), W - m, sy + d(1), p);
+            fill(MAG); c.drawRect(m, sy - d(1.5f), m + (W - 2 * m) * seekFrac(), sy + d(1.5f), p);
+            tx(c, fmt(seekPos()), m, sy + d(18), d(12), GRAY, reg, Paint.Align.LEFT, 0);
+            tx(c, "-" + fmt(dur() - seekPos()), W - m, sy + d(18), d(12), GRAY, reg, Paint.Align.RIGHT, 0);
+            float cy = y0 + d(150), cx = W / 2;
+            circle(c, B_PREV, cx - d(70), cy, d(21), 0); circle(c, B_PLAY, cx, cy, d(27), 1); circle(c, B_NEXT, cx + d(70), cy, d(21), 2);
+            tmp.set(m - d(6), cy - d(18), m + d(66), cy + d(18)); btn(B_SHUF, tmp);
+            tx(c, "shuffle", m, cy + d(5), d(15), pl.shuffle ? MAG : DIM, reg, Paint.Align.LEFT, 0);
+            String rp = pl.repeat == 0 ? "repeat" : pl.repeat == 1 ? "repeat all" : "repeat one";
+            tmp.set(W - m - d(84), cy - d(18), W - m + d(6), cy + d(18)); btn(B_REP, tmp);
+            tx(c, rp, W - m, cy + d(5), d(15), pl.repeat != 0 ? MAG : DIM, reg, Paint.Align.RIGHT, 0);
+        }
+    }
+
+    // =====================================================================
+    //  Walkman: an 80s cassette player. The reels spin and the tape moves from one spool to the other
+    //  as the song plays. The track list is a handwritten J-card.
+    // =====================================================================
+    class Walkman extends Skin {
+        float angL, angR;
+        final Typeface hand = Typeface.create("casual", Typeface.NORMAL), handB = Typeface.create("casual", Typeface.BOLD),
+            brand = Typeface.create("sans-serif-condensed", Typeface.BOLD_ITALIC), reg = Typeface.create("sans-serif", Typeface.BOLD);
+        static final int INK = 0xFF1E2E6B, PAPER = 0xFFF4EEDC, ORANGE = 0xFFFF8A1E;
+        Walkman(Context c) { super(c); }
+
+        void key(Canvas c, int id, RectF r, String glyph, boolean orange, boolean latched) {
+            btn(id, r); boolean dn = down(id) || latched; float push = dn ? d(7) : 0;
+            tmp.set(r.left, r.top + push, r.right, r.bottom);
+            fill(0xFF101216); c.drawRoundRect(tmp.left, tmp.top + d(3), tmp.right, tmp.bottom + d(3), d(5), d(5), p);
+            p.setShader(lg(0, tmp.top, 0, tmp.bottom, orange ? 0xFFFFB45E : 0xFFF2F2F2, orange ? ORANGE : 0xFFC9CACC, orange ? 0xFFC05400 : 0xFF8D8F94));
+            c.drawRoundRect(tmp, d(5), d(5), p); p.setShader(null);
+            fill(0x55FFFFFF); c.drawRect(tmp.left + d(4), tmp.top + d(2), tmp.right - d(4), tmp.top + d(4), p);
+            float cx = tmp.centerX(), cy = tmp.top + d(17), s = d(14); int g = orange ? 0xFF4A1E00 : 0xFF2A2C30;
+            if (glyph.equals("rew")) gPrev(c, cx, cy, s, g); else if (glyph.equals("ff")) gNext(c, cx, cy, s, g);
+            else if (glyph.equals("play")) gPlay(c, cx, cy, s, g); else gStop(c, cx, cy, s * .9f, g);
+            tx(c, glyph.equals("rew") ? "REW" : glyph.equals("ff") ? "FF" : glyph.equals("play") ? "PLAY" : "STOP", cx, cy + d(18), d(9), g, reg, Paint.Align.CENTER, 0);
+        }
+
+        void spool(Canvas c, float cx, float cy, float r, float hub, float ang) {
+            fill(0xFF3B2A1F); c.drawCircle(cx, cy, r, p);
+            stroke(0x33000000, d(1)); for (float k = hub + d(3); k < r; k += d(3)) c.drawCircle(cx, cy, k, p);
+            fill(0xFFEDEDED); c.drawCircle(cx, cy, hub, p);
+            fill(0xFF2A2A2E); c.drawCircle(cx, cy, hub * .55f, p);
+            c.save(); c.rotate(ang, cx, cy); fill(0xFFEDEDED);
+            for (int i = 0; i < 6; i++) { c.rotate(60, cx, cy); c.drawRect(cx - hub * .1f, cy - hub * .55f, cx + hub * .1f, cy - hub * .3f, p); }
+            c.restore();
+        }
+
+        void slide(Canvas c, int id, RectF r, String label, int pos, int n) {
+            btn(id, r);
+            tx(c, label, r.centerX(), r.top - d(4), d(9), 0xFFDCE6F2, reg, Paint.Align.CENTER, 0);
+            fill(0xFF14202E); c.drawRoundRect(r, d(4), d(4), p);
+            float kw = r.width() / n; tmp.set(r.left + pos * kw + d(2), r.top + d(2), r.left + (pos + 1) * kw - d(2), r.bottom - d(2));
+            p.setShader(lg(0, tmp.top, 0, tmp.bottom, 0xFFF0F0F0, 0xFF9A9CA0)); c.drawRoundRect(tmp, d(3), d(3), p); p.setShader(null);
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            begin(); float W = getWidth(), H = getHeight(), m = d(14); Song np = now(); boolean on = on();
+            p.setShader(lg(0, 0, 0, H, 0xFF232838, 0xFF0D0F15)); c.drawRect(0, 0, W, H, p); p.setShader(null);
+            float bw = W - 2 * m, bh = Math.min(H * .5f, bw * .98f), bt = d(40);
+            RectF body = new RectF(m, bt, m + bw, bt + bh);
+            // piano keys along the top edge
+            float kw = (bw * .62f) / 4, kx = body.left + bw * .06f;
+            key(c, B_PREV, new RectF(kx, d(8), kx + kw - d(4), d(56)), "rew", false, false);
+            key(c, B_PLAY, new RectF(kx + kw, d(8), kx + 2 * kw - d(4), d(56)), "play", true, on);
+            key(c, B_NEXT, new RectF(kx + 2 * kw, d(8), kx + 3 * kw - d(4), d(56)), "ff", false, false);
+            key(c, B_STOP, new RectF(kx + 3 * kw, d(8), kx + 4 * kw - d(4), d(56)), "stop", false, false);
+            // brushed blue metal body
+            fill(0x66000000); c.drawRoundRect(body.left + d(3), body.top + d(6), body.right + d(3), body.bottom + d(6), d(16), d(16), p);
+            p.setShader(lg(0, body.top, 0, body.bottom, 0xFF7C9CC2, 0xFF4C6E96, 0xFF2D4767)); c.drawRoundRect(body, d(16), d(16), p); p.setShader(null);
+            c.save(); Path cl = new Path(); cl.addRoundRect(body, d(16), d(16), Path.Direction.CW); c.clipPath(cl);
+            for (float yy = body.top; yy < body.bottom; yy += d(2)) { fill(((int) (yy / d(2)) % 3 == 0) ? 0x14FFFFFF : 0x0A000000); c.drawRect(body.left, yy, body.right, yy + d(1), p); }
+            c.restore();
+            stroke(0x55FFFFFF, d(1.5f)); c.drawRoundRect(body.left + d(1), body.top + d(1), body.right - d(1), body.bottom - d(1), d(15), d(15), p);
+            // cassette window
+            RectF win = new RectF(body.left + bw * .07f, body.top + bh * .09f, body.right - bw * .07f, body.top + bh * .6f);
+            fill(0xFF0E1015); c.drawRoundRect(win, d(10), d(10), p);
+            RectF cas = new RectF(win.left + d(8), win.top + d(8), win.right - d(8), win.bottom - d(8));
+            fill(0xFF26262B); c.drawRoundRect(cas, d(6), d(6), p);
+            RectF lab = new RectF(cas.left + d(8), cas.top + d(6), cas.right - d(8), cas.top + cas.height() * .42f);
+            fill(PAPER); c.drawRoundRect(lab, d(3), d(3), p);
+            fill(0xFFE2533A); c.drawRect(lab.left, lab.top + d(4), lab.right, lab.top + d(8), p); fill(ORANGE); c.drawRect(lab.left, lab.top + d(9), lab.right, lab.top + d(12), p);
+            float as = lab.height() - d(18), ax = lab.right - as - d(6);
+            if (np != null) { tmp.set(ax, lab.top + d(14), ax + as, lab.top + d(14) + as); art(c, np, tmp, 0xFFDDD4BC, 0xFF9A8F78); }
+            tx(c, np == null ? "Side A" : np.title, lab.left + d(8), lab.top + d(30), d(17), INK, handB, Paint.Align.LEFT, ax - lab.left - d(14));
+            tx(c, np == null ? "insert a song below" : np.artist, lab.left + d(8), lab.top + d(50), d(13), INK, hand, Paint.Align.LEFT, ax - lab.left - d(14));
+            // reels: tape moves from left to right as the song plays
+            float f = seekFrac(), cy = cas.top + cas.height() * .7f, dx = cas.width() * .24f, hub = cas.height() * .1f, rmax = cas.height() * .27f;
+            float rl = hub + (rmax - hub) * (1 - f), rr = hub + (rmax - hub) * f;
+            if (on) { angL -= dt * 260 * (rmax / Math.max(rl, hub)); angR -= dt * 260 * (rmax / Math.max(rr, hub)); }
+            fill(0xFF101014); tmp.set(cas.centerX() - dx - rmax - d(4), cy - rmax - d(4), cas.centerX() + dx + rmax + d(4), cy + rmax + d(4)); c.drawRoundRect(tmp, rmax, rmax, p);
+            spool(c, cas.centerX() - dx, cy, rl, hub, angL); spool(c, cas.centerX() + dx, cy, rr, hub, angR);
+            fill(0xFF3B2A1F); c.drawRect(cas.centerX() - dx, cy + rmax + d(1), cas.centerX() + dx, cy + rmax + d(3), p);
+            fill(0x22FFFFFF); Path gl = new Path(); gl.moveTo(win.left, win.top); gl.lineTo(win.left + win.width() * .35f, win.top); gl.lineTo(win.left + win.width() * .15f, win.bottom); gl.lineTo(win.left, win.bottom); gl.close(); c.drawPath(gl, p);
+            // brand + tape counter + tape position (seek)
+            float by = win.bottom + d(30);
+            tx(c, "TAPE DECK", body.left + bw * .07f, by, d(26), WHITE, brand, Paint.Align.LEFT, 0);
+            tx(c, "STEREO CASSETTE PLAYER", body.left + bw * .07f + d(2), by + d(14), d(8.5f), 0xFFDCE6F2, reg, Paint.Align.LEFT, 0);
+            String cnt = fmt(seekPos()); float cw = d(64);
+            tmp.set(body.right - bw * .07f - cw, by - d(24), body.right - bw * .07f, by + d(2)); fill(0xFF0B0C10); c.drawRoundRect(tmp, d(4), d(4), p);
+            tx(c, cnt, tmp.centerX(), tmp.bottom - d(7), d(16), WHITE, Typeface.MONOSPACE, Paint.Align.CENTER, 0);
+            fill(0x44FFFFFF); c.drawRect(tmp.left, tmp.centerY() - d(.5f), tmp.right, tmp.centerY() + d(.5f), p);
+            float sy = by + d(30); seek.set(body.left + bw * .07f, sy - d(3), body.right - bw * .07f, sy + d(3));
+            fill(0xFF14202E); c.drawRoundRect(seek, d(3), d(3), p);
+            fill(ORANGE); c.drawRoundRect(seek.left, seek.top, seek.left + Math.max(d(6), seek.width() * f), seek.bottom, d(3), d(3), p);
+            // switches + buttons along the bottom of the body
+            float sw = d(52), sh = d(18), syy = body.bottom - d(26);
+            slide(c, B_SHUF, new RectF(body.left + bw * .07f, syy - sh, body.left + bw * .07f + sw, syy), "SHUFFLE", pl.shuffle ? 1 : 0, 2);
+            slide(c, B_REP, new RectF(body.left + bw * .07f + sw + d(18), syy - sh, body.left + bw * .07f + sw * 2.4f + d(18), syy), "REPEAT  OFF/ALL/1", pl.repeat, 3);
+            tmp.set(body.right - bw * .07f - d(56), syy - d(22), body.right - bw * .07f, syy); btn(B_MENU, tmp);
+            fill(down(B_MENU) ? 0xFF0A0C10 : 0xFF1A1D24); c.drawRoundRect(tmp, d(11), d(11), p); tx(c, "MENU", tmp.centerX(), tmp.centerY() + d(4), d(11), 0xFFDCE6F2, reg, Paint.Align.CENTER, 0);
+            tmp.set(body.right - bw * .07f - d(98), syy - d(22), body.right - bw * .07f - d(64), syy); btn(B_FAV, tmp);
+            fill(down(B_FAV) ? 0xFF0A0C10 : 0xFF1A1D24); c.drawRoundRect(tmp, d(11), d(11), p); gHeart(c, tmp.centerX(), tmp.centerY(), d(9), fav(np) ? 0xFFFF5A7A : 0xFFDCE6F2, fav(np));
+            // J-card track list
+            RectF card = new RectF(m, body.bottom + d(16), W - m, H - m);
+            fill(0x55000000); c.drawRect(card.left + d(3), card.top + d(4), card.right + d(3), card.bottom + d(4), p);
+            fill(PAPER); c.drawRect(card, p);
+            fill(0xFFE2533A); c.drawRect(card.left, card.top, card.right, card.top + d(4), p);
+            float hy = card.top + d(34), hx = card.left + d(14);
+            if (fk != F_ALL) {
+                String bk = "← back"; tmp.set(hx - d(6), hy - d(24), hx + tw(bk, d(17), handB) + d(6), hy + d(8)); btn(B_BACK, tmp);
+                tx(c, bk, hx, hy, d(17), down(B_BACK) ? 0xFFE2533A : INK, handB, Paint.Align.LEFT, 0);
+                tx(c, label(fk, fv), hx + tw(bk, d(17), handB) + d(16), hy, d(17), INK, hand, Paint.Align.LEFT, card.width() - d(150));
+            } else {
+                String[] tn = {"songs", "artists", "albums", "lists"};
+                for (int i = 0; i < 4; i++) {
+                    float w0 = tw(tn[i], d(17), handB); tmp.set(hx - d(6), hy - d(24), hx + w0 + d(6), hy + d(8)); btn(B_TAB + i, tmp);
+                    tx(c, tn[i], hx, hy, d(17), tab == i ? INK : 0xFF8A8FA8, tab == i ? handB : hand, Paint.Align.LEFT, 0);
+                    if (tab == i) { stroke(0xFFE2533A, d(2.5f)); c.drawLine(hx - d(2), hy + d(6), hx + w0 + d(2), hy + d(4), p); }
+                    hx += w0 + d(16);
+                }
+            }
+            String fb = "find"; float fw = tw(fb, d(15), hand);
+            tmp.set(card.right - d(14) - fw - d(6), hy - d(22), card.right - d(8), hy + d(8)); btn(B_BROWSE, tmp);
+            tx(c, fb, card.right - d(14), hy, d(15), down(B_BROWSE) ? 0xFFE2533A : INK, hand, Paint.Align.RIGHT, 0);
+            float lt = hy + d(14), rh = d(42);
+            tmp.set(card.left, lt, card.right, card.bottom - d(6)); float o = listArea(tmp, rh); int n = count();
+            c.save(); c.clipRect(list);
+            for (float yy = lt + rh - (o % rh); yy < card.bottom; yy += rh) { fill(0x332A5BC8); c.drawRect(card.left + d(8), yy - d(1), card.right - d(8), yy, p); }
+            if (n == 0) tx(c, all.isEmpty() ? "(no tapes yet - add music to your phone)" : "(empty)", card.left + d(16), lt + d(30), d(15), 0xFF8A8FA8, hand, Paint.Align.LEFT, card.width() - d(32));
+            for (int i = Math.max(0, (int) (o / rh)); i < n; i++) {
+                float ry = lt + i * rh - o; if (ry > card.bottom) break;
+                boolean cur = current(i), dn = rowDown(i);
+                if (cur) { fill(0x99FFF176); c.drawRect(card.left + d(10), ry + d(8), card.right - d(10), ry + rh - d(6), p); }
+                if (dn) { fill(0x332A5BC8); c.drawRect(card.left + d(6), ry + d(4), card.right - d(6), ry + rh - d(2), p); }
+                String num = tab == 0 ? String.format(Locale.US, "%02d", i + 1) : isNew(i) ? "+" : "•";
+                tx(c, num, card.left + d(16), ry + rh * .66f, d(15), 0xFFE2533A, handB, Paint.Align.LEFT, 0);
+                String sb = sub(i); float sw0 = sb.isEmpty() ? 0 : Math.min(tw(sb, d(13), hand), card.width() * .38f);
+                tx(c, title(i), card.left + d(48), ry + rh * .66f, d(17), INK, cur ? handB : hand, Paint.Align.LEFT, card.width() - d(70) - sw0);
+                if (!sb.isEmpty()) tx(c, sb, card.right - d(14), ry + rh * .66f, d(13), 0xFF6A6F8F, hand, Paint.Align.RIGHT, card.width() * .38f);
+            }
+            c.restore();
+        }
+    }
+
+    // =====================================================================
+    //  PSP XrossMediaBar: monthly colour gradient, flowing waves, horizontal categories, vertical items
+    // =====================================================================
+    class Psp extends Skin {
+        final int[] MONTH = {0xFF8D97A3, 0xFFB8922C, 0xFF5E9B2A, 0xFFD06C9A, 0xFF3E9F4A, 0xFF7E4DB8, 0xFF16998F, 0xFF2862C2, 0xFF5C3594, 0xFFC4931A, 0xFF7E5128, 0xFFB5352A};
+        final Typeface light = Typeface.create("sans-serif-light", Typeface.NORMAL), reg = Typeface.create("sans-serif", Typeface.NORMAL);
+        float cat = 1;
+        Psp(Context c) { super(c); }
+
+        int mix(int a, int b, float t) {
+            int ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255, br0 = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
+            return 0xFF000000 | ((int) (ar + (br0 - ar) * t) << 16) | ((int) (ag + (bg - ag) * t) << 8) | (int) (ab + (bb - ab) * t);
+        }
+
+        void icon(Canvas c, int k, float cx, float cy, float s, int col) {
+            stroke(col, d(2.4f));
+            if (k == 0) {   // gear
+                c.drawCircle(cx, cy, s * .32f, p);
+                for (int i = 0; i < 8; i++) { double a = i * Math.PI / 4; c.drawLine(cx + (float) Math.cos(a) * s * .38f, cy + (float) Math.sin(a) * s * .38f, cx + (float) Math.cos(a) * s * .52f, cy + (float) Math.sin(a) * s * .52f, p); }
+            } else if (k == 1) {   // note
+                fill(col); c.drawOval(cx - s * .42f, cy + s * .12f, cx - s * .06f, cy + s * .42f, p); c.drawOval(cx + s * .1f, cy + s * .02f, cx + s * .46f, cy + s * .32f, p);
+                stroke(col, d(2.4f)); c.drawLine(cx - s * .08f, cy + s * .26f, cx - s * .08f, cy - s * .42f, p); c.drawLine(cx + s * .44f, cy + s * .16f, cx + s * .44f, cy - s * .52f, p);
+                c.drawLine(cx - s * .08f, cy - s * .42f, cx + s * .44f, cy - s * .52f, p);
+            } else if (k == 2) {   // person
+                c.drawCircle(cx, cy - s * .2f, s * .2f, p); tmp.set(cx - s * .42f, cy + s * .08f, cx + s * .42f, cy + s * .8f); c.drawArc(tmp, 180, 180, false, p);
+            } else if (k == 3) {   // disc
+                c.drawCircle(cx, cy, s * .46f, p); c.drawCircle(cx, cy, s * .12f, p);
+            } else {   // list
+                for (int i = -1; i <= 1; i++) c.drawLine(cx - s * .4f, cy + i * s * .28f, cx + s * .42f, cy + i * s * .28f, p);
+            }
+            p.setStyle(Paint.Style.FILL);
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            begin(); float W = getWidth(), H = getHeight(), m = d(16); long t = SystemClock.uptimeMillis(); Song np = now();
+            int col = MONTH[Calendar.getInstance().get(Calendar.MONTH)];
+            p.setShader(lg(0, 0, 0, H, mix(col, WHITE, .3f), col, mix(col, BLACK, .65f))); c.drawRect(0, 0, W, H, p); p.setShader(null);
+            // the famous waves
+            for (int k = 0; k < 3; k++) {
+                Path w = new Path(), wb = new Path(); float base = H * (.46f + k * .025f), amp = d(26 + k * 9);
+                for (int i = 0; i <= 40; i++) {
+                    float x = W * i / 40f, y = base + (float) Math.sin(i / 40f * Math.PI * 2 * (1 + k * .3f) + t / (1900.0 + k * 700) + k) * amp;
+                    if (i == 0) { w.moveTo(x, y); wb.moveTo(x, y); } else { w.lineTo(x, y); wb.lineTo(x, y); }
+                }
+                wb.lineTo(W, base + d(60)); wb.lineTo(0, base + d(60)); wb.close();
+                fill(0x10FFFFFF); c.drawPath(wb, p);
+                stroke(0x55FFFFFF, d(1.2f)); c.drawPath(w, p); p.setStyle(Paint.Style.FILL);
+            }
+            // clock
+            Date nowD = new Date();
+            tx(c, new SimpleDateFormat("h:mm", Locale.US).format(nowD), W - m, d(36), d(20), WHITE, light, Paint.Align.RIGHT, 0);
+            tx(c, new SimpleDateFormat("M/d", Locale.US).format(nowD), W - m, d(54), d(12), 0xCCFFFFFF, reg, Paint.Align.RIGHT, 0);
+            if (fk != F_ALL) {
+                String bk = "◁  " + label(fk, fv); tmp.set(m - d(6), d(14), m + tw(bk, d(16), reg) + d(10), d(50)); btn(B_BACK, tmp);
+                tx(c, bk, m, d(38), d(16), down(B_BACK) ? 0xFFFFFFFF : 0xDDFFFFFF, reg, Paint.Align.LEFT, W * .6f);
+            }
+            // categories: Settings, Songs, Artists, Albums, Playlists
+            int selCat = tab + 1; cat += (selCat - cat) * Math.min(1, dt * 10);
+            float selX = W * .27f, cy = H * .17f, gap = d(86), isz = d(40);
+            String[] cn = {"Settings", "Songs", "Artists", "Albums", "Playlists"};
+            for (int k = 0; k < 5; k++) {
+                float cx = selX + (k - cat) * gap; if (cx < -gap || cx > W + gap) continue;
+                boolean sel = k == selCat;
+                if (sel) { p.setShader(new RadialGradient(cx, cy, isz * 1.4f, 0x66FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)); c.drawCircle(cx, cy, isz * 1.4f, p); p.setShader(null); }
+                icon(c, k, cx, cy, sel ? isz : isz * .78f, sel ? WHITE : 0xAAFFFFFF);
+                if (sel) tx(c, cn[k], cx, cy + isz * .95f, d(14), WHITE, reg, Paint.Align.CENTER, 0);
+                tmp.set(cx - gap / 2, cy - isz, cx + gap / 2, cy + isz); btn(k == 0 ? B_MENU : B_TAB + k - 1, tmp);
+            }
+            if (Math.abs(selCat - cat) > .002f) postInvalidateOnAnimation();
+            // vertical items under the selected category
+            float panelH = d(122), lt = cy + isz * 1.45f, lb = H - panelH - d(10), lx = selX - d(30), rh = d(60);
+            tmp.set(0, lt, W, lb); float o = listArea(tmp, rh); int n = count();
+            c.save(); c.clipRect(list);
+            if (n == 0) tx(c, all.isEmpty() ? "There is no music." : "There are no items.", lx, lt + d(40), d(17), WHITE, light, Paint.Align.LEFT, W - lx - m);
+            for (int i = Math.max(0, (int) (o / rh)); i < n; i++) {
+                float ry = lt + i * rh - o; if (ry > lb) break;
+                boolean cur = current(i), dn = rowDown(i);
+                if (dn) { fill(0x22FFFFFF); c.drawRoundRect(lx - d(8), ry + d(4), W - m, ry + rh - d(4), d(8), d(8), p); }
+                tmp.set(lx, ry + d(8), lx + rh - d(16), ry + rh - d(8));
+                if (isNew(i)) { stroke(WHITE, d(2)); c.drawRoundRect(tmp, d(4), d(4), p); tx(c, "+", tmp.centerX(), tmp.centerY() + d(10), d(28), WHITE, light, Paint.Align.CENTER, 0); }
+                else art(c, song(i), tmp, 0x33FFFFFF, 0xAAFFFFFF);
+                float x = tmp.right + d(14);
+                if (cur) { p.setShader(new RadialGradient(x + d(40), ry + rh / 2, d(120), 0x33FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)); c.drawRect(x - d(10), ry, W, ry + rh, p); p.setShader(null); }
+                tx(c, title(i), x, ry + rh * .47f, d(cur ? 19 : 17), WHITE, cur ? reg : light, Paint.Align.LEFT, W - x - m);
+                String sb = sub(i); if (!sb.isEmpty()) tx(c, sb, x, ry + rh * .47f + d(19), d(12.5f), 0xBBFFFFFF, reg, Paint.Align.LEFT, W - x - m);
+            }
+            c.restore();
+            // now playing bar
+            RectF bar = new RectF(m, H - panelH, W - m, H - d(12));
+            fill(0x55000000); c.drawRoundRect(bar, d(14), d(14), p); stroke(0x33FFFFFF, d(1)); c.drawRoundRect(bar, d(14), d(14), p); p.setStyle(Paint.Style.FILL);
+            tmp.set(bar.left + d(12), bar.top + d(12), bar.left + d(64), bar.top + d(64)); if (np != null) art(c, np, tmp, 0x33FFFFFF, 0xAAFFFFFF);
+            float ix = tmp.right + d(12), iw = bar.right - ix - d(12);
+            tx(c, np == null ? "No track" : np.title, ix, bar.top + d(30), d(16), WHITE, reg, Paint.Align.LEFT, iw - d(40));
+            tx(c, np == null ? "" : np.artist, ix, bar.top + d(50), d(12.5f), 0xCCFFFFFF, reg, Paint.Align.LEFT, iw - d(40));
+            tmp.set(bar.right - d(44), bar.top + d(10), bar.right - d(8), bar.top + d(46)); btn(B_FAV, tmp); gHeart(c, tmp.centerX(), tmp.centerY(), d(12), WHITE, fav(np));
+            float sy = bar.top + d(74); seek.set(ix, sy - d(1.5f), bar.right - d(14), sy + d(1.5f));
+            fill(0x44FFFFFF); c.drawRect(seek, p); fill(WHITE); c.drawRect(seek.left, seek.top, seek.left + seek.width() * seekFrac(), seek.bottom, p);
+            c.drawCircle(seek.left + seek.width() * seekFrac(), sy, d(4), p);
+            tx(c, fmt(seekPos()) + " / " + fmt(dur()), bar.left + d(12), sy + d(5), d(11.5f), 0xCCFFFFFF, reg, Paint.Align.LEFT, 0);
+            float by = bar.bottom - d(20), bxs = (bar.width() - d(24)) / 5;
+            int[] ids = {B_SHUF, B_PREV, B_PLAY, B_NEXT, B_REP};
+            for (int i = 0; i < 5; i++) {
+                float cx = bar.left + d(12) + bxs * (i + .5f); tmp.set(cx - bxs / 2, by - d(16), cx + bxs / 2, by + d(14)); btn(ids[i], tmp);
+                int g = down(ids[i]) ? 0x88FFFFFF : (i == 0 && pl.shuffle) || (i == 4 && pl.repeat != 0) ? WHITE : (i == 0 || i == 4 ? 0x88FFFFFF : WHITE);
+                float s = d(16);
+                if (i == 0) gShuffle(c, cx, by, s, g); else if (i == 1) gPrev(c, cx, by, s, g); else if (i == 2) gToggle(c, cx, by, s * 1.2f, g); else if (i == 3) gNext(c, cx, by, s, g); else gRepeat(c, cx, by, s, g, pl.repeat);
+            }
+        }
+    }
+
+    // =====================================================================
+    //  Windows Media Player 11: black glass, tabbed toolbar, Vista-blue selection, big round play button
+    // =====================================================================
+    class Wmp extends Skin {
+        static final int B_NOW = 30, B_LIB = 31, B_RIP = 32, B_BURN = 33, B_SYNC = 34;
+        boolean nowView; final float[] lv = new float[36];
+        final Typeface reg = Typeface.create("sans-serif", Typeface.NORMAL), bold = Typeface.create("sans-serif", Typeface.BOLD);
+        Wmp(Context c) { super(c); }
+
+        @Override void onButton(int id) {
+            if (id == B_NOW) nowView = true; else if (id == B_LIB) nowView = false;
+            else if (id == B_RIP || id == B_BURN || id == B_SYNC) toast("No CD burner in a phone. Try Library!");
+            else super.onButton(id);
+            invalidate();
+        }
+
+        void glassBtn(Canvas c, int id, float cx, float cy, float r, int glyph, boolean lit) {
+            tmp.set(cx - r - d(3), cy - r - d(3), cx + r + d(3), cy + r + d(3)); btn(id, tmp);
+            boolean dn = down(id);
+            p.setShader(new RadialGradient(cx, cy - r * .3f, r * 1.3f, dn ? 0xFF1A2230 : 0xFF4A5260, 0xFF0A0C10, Shader.TileMode.CLAMP)); c.drawCircle(cx, cy, r, p); p.setShader(null);
+            if (lit) { p.setShader(new RadialGradient(cx, cy, r, 0x8836A0FF, 0x0036A0FF, Shader.TileMode.CLAMP)); c.drawCircle(cx, cy, r, p); p.setShader(null); }
+            fill(0x30FFFFFF); c.drawOval(cx - r * .75f, cy - r * .9f, cx + r * .75f, cy - r * .05f, p);
+            stroke(0xFF6A7280, d(1.2f)); c.drawCircle(cx, cy, r, p); p.setStyle(Paint.Style.FILL);
+            float s = r * .8f;
+            if (glyph == 0) gPrev(c, cx, cy, s, WHITE); else if (glyph == 1) gToggle(c, cx, cy, s, WHITE); else if (glyph == 2) gNext(c, cx, cy, s, WHITE); else gStop(c, cx, cy, s * .8f, WHITE);
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            begin(); float W = getWidth(), H = getHeight(), m = d(10); Song np = now(); boolean on = on();
+            c.drawColor(0xFF0B0C0E);
+            // toolbar tabs
+            float tbh = d(46);
+            p.setShader(lg(0, 0, 0, tbh, 0xFF40464F, 0xFF16181C, 0xFF060708)); c.drawRect(0, 0, W, tbh, p); p.setShader(null);
+            fill(0x22FFFFFF); c.drawRect(0, 0, W, tbh * .45f, p);
+            String[] tn = {"Now Playing", "Library", "Rip", "Burn", "Sync"}; int[] ti = {B_NOW, B_LIB, B_RIP, B_BURN, B_SYNC};
+            float tot = 0; for (String s : tn) tot += tw(s, d(13.5f), bold) + d(22);
+            float x = Math.max(m, (W - tot) / 2);
+            for (int i = 0; i < 5; i++) {
+                float w0 = tw(tn[i], d(13.5f), bold) + d(22); tmp.set(x, d(4), x + w0, tbh - d(4)); btn(ti[i], tmp);
+                boolean sel = (i == 0 && nowView) || (i == 1 && !nowView);
+                if (sel || down(ti[i])) {
+                    p.setShader(new RadialGradient(tmp.centerX(), tmp.bottom, w0 * .7f, 0xCC2E8BFF, 0x002E8BFF, Shader.TileMode.CLAMP)); c.drawRoundRect(tmp, d(4), d(4), p); p.setShader(null);
+                    stroke(0x6680BFFF, d(1)); c.drawRoundRect(tmp, d(4), d(4), p); p.setStyle(Paint.Style.FILL);
+                }
+                tx(c, tn[i], tmp.centerX(), tmp.centerY() + d(5), d(13.5f), sel ? WHITE : 0xFFB8BEC8, bold, Paint.Align.CENTER, 0);
+                x += w0;
+            }
+            float trH = d(116), top = tbh, bot = H - trH;
+            if (!nowView) {
+                // breadcrumb + search
+                float bh = d(38);
+                p.setShader(lg(0, top, 0, top + bh, 0xFF3E5070, 0xFF1F2A3C)); c.drawRect(0, top, W, top + bh, p); p.setShader(null);
+                String crumb = "Music  ▸  Library  ▸  " + header();
+                tmp.set(W - m - d(120), top + d(7), W - m, top + bh - d(7)); btn(B_SEARCH, tmp);
+                fill(down(B_SEARCH) ? 0xFFD8E4F4 : 0xFFF4F7FB); c.drawRoundRect(tmp, d(3), d(3), p);
+                tx(c, "Search", tmp.left + d(8), tmp.centerY() + d(4.5f), d(13), 0xFF8A93A0, reg, Paint.Align.LEFT, 0);
+                stroke(0xFF8A93A0, d(1.6f)); c.drawCircle(tmp.right - d(14), tmp.centerY() - d(1.5f), d(5), p); c.drawLine(tmp.right - d(10.5f), tmp.centerY() + d(2), tmp.right - d(7), tmp.centerY() + d(5.5f), p); p.setStyle(Paint.Style.FILL);
+                tx(c, crumb, m + d(4), top + bh / 2 + d(5), d(13), 0xFFE6ECF5, reg, Paint.Align.LEFT, W - d(150));
+                // view tabs
+                float vt = top + bh, vh = d(36);
+                p.setShader(lg(0, vt, 0, vt + vh, 0xFFF5F8FC, 0xFFDCE4EF)); c.drawRect(0, vt, W, vt + vh, p); p.setShader(null);
+                float vx = m;
+                if (fk != F_ALL) { String bk = "‹ Back"; float w0 = tw(bk, d(13.5f), bold) + d(20); tmp.set(vx, vt + d(5), vx + w0, vt + vh - d(5)); btn(B_BACK, tmp);
+                    fill(down(B_BACK) ? 0xFFC4DDF9 : WHITE); c.drawRoundRect(tmp, d(3), d(3), p); stroke(0xFF8EA8CC, d(1)); c.drawRoundRect(tmp, d(3), d(3), p); p.setStyle(Paint.Style.FILL);
+                    tx(c, bk, tmp.centerX(), tmp.centerY() + d(4.5f), d(13.5f), 0xFF1B3B6A, bold, Paint.Align.CENTER, 0); vx += w0 + d(6); }
+                for (int i = 0; i < 4; i++) {
+                    String s = tabName(i); float w0 = tw(s, d(13.5f), reg) + d(18); tmp.set(vx, vt + d(5), vx + w0, vt + vh - d(5)); btn(B_TAB + i, tmp);
+                    boolean sel = tab == i && fk == F_ALL;
+                    if (sel || down(B_TAB + i)) { fill(sel ? WHITE : 0xFFE6EEF8); c.drawRoundRect(tmp, d(3), d(3), p); stroke(0xFF8EA8CC, d(1)); c.drawRoundRect(tmp, d(3), d(3), p); p.setStyle(Paint.Style.FILL); }
+                    tx(c, s, tmp.centerX(), tmp.centerY() + d(4.5f), d(13.5f), 0xFF1B3B6A, sel ? bold : reg, Paint.Align.CENTER, 0); vx += w0 + d(2);
+                    if (vx > W - d(20)) break;
+                }
+                // list
+                float lt = vt + vh; fill(WHITE); c.drawRect(0, lt, W, bot, p);
+                float rh = d(54); tmp.set(0, lt, W, bot); float o = listArea(tmp, rh); int n = count();
+                c.save(); c.clipRect(list);
+                if (n == 0) tx(c, all.isEmpty() ? "There are no items in your library." : "No items match.", W / 2, lt + d(40), d(14), 0xFF6A7380, reg, Paint.Align.CENTER, W - 2 * m);
+                for (int i = Math.max(0, (int) (o / rh)); i < n; i++) {
+                    float ry = lt + i * rh - o; if (ry > bot) break;
+                    boolean cur = current(i), dn = rowDown(i);
+                    if (i % 2 == 1) { fill(0xFFF5F8FC); c.drawRect(0, ry, W, ry + rh, p); }
+                    if (cur || dn) {
+                        tmp.set(d(4), ry + d(2), W - d(4), ry + rh - d(2));
+                        p.setShader(lg(0, tmp.top, 0, tmp.bottom, dn ? 0xFFDCEBFC : 0xFFF2F8FE, dn ? 0xFFB9D7F7 : 0xFFCFE4FA)); c.drawRoundRect(tmp, d(3), d(3), p); p.setShader(null);
+                        stroke(0xFF84ACDD, d(1)); c.drawRoundRect(tmp, d(3), d(3), p); p.setStyle(Paint.Style.FILL);
+                    }
+                    tmp.set(m, ry + d(7), m + rh - d(14), ry + rh - d(7));
+                    if (isNew(i)) { fill(0xFF2E7BE0); c.drawRect(tmp, p); tx(c, "+", tmp.centerX(), tmp.centerY() + d(9), d(26), WHITE, bold, Paint.Align.CENTER, 0); }
+                    else art(c, song(i), tmp, 0xFFE4EAF2, 0xFF9AA6B6);
+                    float tx0 = tmp.right + d(12), tw0 = W - tx0 - d(60);
+                    tx(c, title(i), tx0, ry + rh * .45f, d(15), 0xFF101010, cur ? bold : reg, Paint.Align.LEFT, tw0);
+                    tx(c, sub(i), tx0, ry + rh * .45f + d(18), d(12.5f), 0xFF6A7380, reg, Paint.Align.LEFT, tw0);
+                    if (tab == 0) tx(c, fmt(filtered().get(i).dur), W - m, ry + rh * .45f, d(12.5f), 0xFF6A7380, reg, Paint.Align.RIGHT, 0);
+                }
+                c.restore();
+            } else {
+                // Now Playing: big cover with a reflection + visualization
+                p.setShader(new RadialGradient(W / 2, top + (bot - top) * .4f, W * .9f, 0xFF10284D, 0xFF000000, Shader.TileMode.CLAMP)); c.drawRect(0, top, W, bot, p); p.setShader(null);
+                float as = Math.min(W * .62f, (bot - top) * .45f), ax = (W - as) / 2, ay = top + d(24);
+                tmp.set(ax, ay, ax + as, ay + as);
+                if (np != null) {
+                    art(c, np, tmp, 0xFF1A2230, 0xFF4A5A70);
+                    Bitmap a = artFor(np);
+                    if (a != null) {
+                        c.save(); c.translate(0, ay + as * 2 + d(2)); c.scale(1, -1); tmp.set(ax, ay, ax + as, ay + as);
+                        p.setAlpha(80); p.setFilterBitmap(true); c.drawBitmap(a, new Rect(0, 0, a.getWidth(), a.getHeight()), tmp, p); p.setAlpha(255); c.restore();
+                        p.setShader(lg(0, ay + as, 0, ay + as + as * .5f, 0x00000000, 0xFF000000)); c.drawRect(ax - d(1), ay + as, ax + as + d(1), ay + as + as * .5f + d(1), p); p.setShader(null);
+                    }
+                } else { fill(0xFF141A24); c.drawRect(tmp, p); }
+                float ty = ay + as + d(44);
+                tx(c, np == null ? "Windows Media Player" : np.title, W / 2, ty, d(19), WHITE, bold, Paint.Align.CENTER, W - 2 * m);
+                tx(c, np == null ? "Pick something from the Library" : np.artist + "  —  " + np.album, W / 2, ty + d(24), d(13.5f), 0xFFAAB6C8, reg, Paint.Align.CENTER, W - 2 * m);
+                float vb = bot - d(14), vh = Math.max(d(30), bot - ty - d(60)), gw = (W - 2 * m) / lv.length;
+                for (int i = 0; i < lv.length; i++) {
+                    float tg = on ? viz(i, lv.length) : 0; lv[i] = lv[i] * .6f + tg * .4f;
+                    float hh = Math.max(d(2), vh * lv[i]);
+                    p.setShader(lg(0, vb - vh, 0, vb, 0xFF9FD4FF, 0xFF2E7BE0, 0xFF0B2A6A)); c.drawRect(m + i * gw + d(1.5f), vb - hh, m + (i + 1) * gw - d(1.5f), vb, p); p.setShader(null);
+                }
+            }
+            // transport bar
+            float y0 = bot;
+            p.setShader(lg(0, y0, 0, H, 0xFF30353D, 0xFF101216, 0xFF040506)); c.drawRect(0, y0, W, H, p); p.setShader(null);
+            fill(0x55FFFFFF); c.drawRect(0, y0, W, y0 + d(1), p);
+            float sy = y0 + d(12); seek.set(m, sy - d(2.5f), W - m, sy + d(2.5f));
+            fill(0xFF05070A); c.drawRoundRect(seek, d(2.5f), d(2.5f), p);
+            float fx = seek.left + seek.width() * seekFrac();
+            p.setShader(lg(0, seek.top, 0, seek.bottom, 0xFF8CC8FF, 0xFF2266CC)); c.drawRoundRect(seek.left, seek.top, Math.max(seek.left + d(5), fx), seek.bottom, d(2.5f), d(2.5f), p); p.setShader(null);
+            p.setShader(new RadialGradient(fx, sy, d(9), 0xFFFFFFFF, 0x004FA3FF, Shader.TileMode.CLAMP)); c.drawCircle(fx, sy, d(9), p); p.setShader(null);
+            tx(c, np == null ? "Ready" : np.title + " - " + np.artist, m, y0 + d(36), d(12.5f), 0xFFC8D0DC, reg, Paint.Align.LEFT, W - d(120));
+            tx(c, fmt(seekPos()) + " / " + fmt(dur()), W - m, y0 + d(36), d(12.5f), 0xFFC8D0DC, reg, Paint.Align.RIGHT, 0);
+            float cy = y0 + d(80), cx = W / 2;
+            glassBtn(c, B_STOP, cx - d(98), cy, d(16), 3, false);
+            glassBtn(c, B_PREV, cx - d(56), cy, d(18), 0, false);
+            glassBtn(c, B_PLAY, cx, cy, d(30), 1, on);
+            glassBtn(c, B_NEXT, cx + d(56), cy, d(18), 2, false);
+            tmp.set(m - d(4), cy - d(16), m + d(32), cy + d(16)); btn(B_SHUF, tmp); gShuffle(c, tmp.centerX(), cy, d(18), pl.shuffle ? 0xFF56AEFF : 0xFF9AA4B2);
+            tmp.set(m + d(34), cy - d(16), m + d(70), cy + d(16)); btn(B_REP, tmp); gRepeat(c, tmp.centerX(), cy, d(18), pl.repeat != 0 ? 0xFF56AEFF : 0xFF9AA4B2, pl.repeat);
+            // volume
+            vol.set(cx + d(96), cy - d(3), W - m - d(4), cy + d(3));
+            if (vol.width() > d(30)) {
+                fill(0xFF05070A); c.drawRoundRect(vol, d(3), d(3), p);
+                p.setShader(lg(0, vol.top, 0, vol.bottom, 0xFF8CC8FF, 0xFF2266CC)); c.drawRoundRect(vol.left, vol.top, vol.left + vol.width() * pl.vol, vol.bottom, d(3), d(3), p); p.setShader(null);
+                fill(0xFFDDE4EE); c.drawCircle(vol.left + vol.width() * pl.vol, cy, d(6), p);
+            } else vol.setEmpty();
+            tmp.set(W - m - d(40), y0 + d(20), W - m, y0 + d(44));
+            tmp.set(m + d(78), cy - d(16), m + d(110), cy + d(16)); btn(B_MENU, tmp);
+            fill(down(B_MENU) ? 0xFF56AEFF : 0xFF9AA4B2); for (int i = -1; i <= 1; i++) c.drawRect(tmp.centerX() - d(7), cy + i * d(5) - d(1), tmp.centerX() + d(7), cy + i * d(5) + d(1), p);
+        }
+    }
+
+    // =====================================================================
+    //  Nokia: a 2000s candybar phone. Green LCD with pixel text, softkeys, and a working keypad
+    //  (2/8 up/down, 5 play, 4/6 skip, 1 shuffle, 3 repeat, 7 favorite, 9 up next, * menu, 0 search, # about).
+    // =====================================================================
+    class Nokia extends Skin {
+        static final int LCD = 0xFFB4CC8E, PIX = 0xFF263018, B_NAVI = 40, B_C = 41, B_UP = 42, B_DOWN = 43, B_KEY = 50;
+        int sel; boolean follow; String typed = ""; AudioTrack beep;
+        final Typeface reg = Typeface.create("sans-serif", Typeface.BOLD);
+        final String[] KD = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"};
+        final String[] KF = {"shuffle", "up", "repeat", "prev", "play", "next", "fav", "down", "queue", "menu", "find", "info"};
+        Nokia(Context c) { super(c); beep = squareTone(1600, 45, .25f); }
+
+        @Override protected void onDetachedFromWindow() { super.onDetachedFromWindow(); try { if (beep != null) beep.release(); } catch (Throwable e) { } beep = null; }
+
+        @Override void onKey() { if (beep != null) try { beep.stop(); beep.reloadStaticData(); beep.play(); } catch (Throwable e) { } }
+
+        float px(float dp) { return Math.max(8, Math.round(d(dp) / 8f) * 8); }
+
+        void move(int d0) { int n = count(); if (n == 0) return; sel = Math.max(0, Math.min(n - 1, sel + d0)); follow = true; }
+
+        @Override void tapRow(int i) { sel = i; super.tapRow(i); }
+        @Override public void top() { super.top(); sel = 0; }
+
+        @Override void onButton(int id) {
+            if (id == B_NAVI) { if (sel < count()) tapRow(sel); }
+            else if (id == B_C) { if (!back()) toast("C"); }
+            else if (id == B_UP) move(-1); else if (id == B_DOWN) move(1);
+            else if (id >= B_KEY && id < B_KEY + 12) {
+                int k = id - B_KEY; typed = (typed + KD[k]); if (typed.length() > 5) typed = typed.substring(typed.length() - 5);
+                if (typed.equals("*#06#")) { about(); typed = ""; return; }
+                switch (k) {
+                    case 0: super.onButton(B_SHUF); break; case 1: move(-1); break; case 2: super.onButton(B_REP); break;
+                    case 3: prev(); break; case 4: toggle(); break; case 5: next(true); break; case 6: super.onButton(B_FAV); break;
+                    case 7: move(1); break; case 8: upNext(); break; case 9: mainMenu(); break; case 10: search(); break; default: break;
+                }
+            } else super.onButton(id);
+            invalidate();
+        }
+
+        void plastic(Canvas c, RectF r, float rad, boolean dn, int c0, int c1) {
+            fill(0x66000000); c.drawRoundRect(r.left, r.top + d(3), r.right, r.bottom + d(3), rad, rad, p);
+            p.setShader(lg(0, r.top, 0, r.bottom, dn ? c1 : c0, dn ? c0 : c1)); c.drawRoundRect(r, rad, rad, p); p.setShader(null);
+            fill(0x33FFFFFF); c.drawRoundRect(r.left + d(3), r.top + d(2), r.right - d(3), r.top + r.height() * .4f, rad, rad, p);
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            begin(); float W = getWidth(), H = getHeight(), m = d(10); Song np = now(); long t = SystemClock.uptimeMillis();
+            c.drawColor(0xFF0A0F1C);
+            RectF body = new RectF(m, m, W - m, H - m);
+            p.setShader(lg(0, body.top, W, body.bottom, 0xFF35558A, 0xFF1C3360, 0xFF101E3C)); c.drawRoundRect(body, d(40), d(40), p); p.setShader(null);
+            stroke(0x44FFFFFF, d(1.5f)); c.drawRoundRect(body.left + d(2), body.top + d(2), body.right - d(2), body.bottom - d(2), d(38), d(38), p); p.setStyle(Paint.Style.FILL);
+            fill(0xFF0A1226); c.drawRoundRect(W / 2 - d(30), body.top + d(16), W / 2 + d(30), body.top + d(22), d(3), d(3), p);
+            p.setLetterSpacing(.25f); tx(c, "TAPE DECK", W / 2, body.top + d(46), d(15), 0xFFD8DEE8, reg, Paint.Align.CENTER, 0); p.setLetterSpacing(0);
+            // LCD
+            float lw = body.width() - d(44), lh = Math.min(H * .4f, lw * .95f);
+            RectF bez = new RectF(body.left + d(22), body.top + d(58), body.right - d(22), body.top + d(58) + lh);
+            fill(0xFF1A1F27); c.drawRoundRect(bez, d(18), d(18), p);
+            RectF lcd = new RectF(bez.left + d(14), bez.top + d(14), bez.right - d(14), bez.bottom - d(14));
+            p.setShader(lg(0, lcd.top, 0, lcd.bottom, 0xFFC3D99E, LCD, 0xFFA5BE80)); c.drawRoundRect(lcd, d(4), d(4), p); p.setShader(null);
+            float u = Math.max(2, Math.round(d(1.6f)));
+            fill(0x0C000000); for (float gx = lcd.left; gx < lcd.right; gx += u * 2) c.drawRect(gx, lcd.top, gx + 1, lcd.bottom, p);
+            Typeface pf = pixFont; float big = px(9), sm = px(7), pad = d(8);
+            c.save(); c.clipRect(lcd);
+            // status row: signal bars, title, battery
+            float sy = lcd.top + pad;
+            for (int i = 0; i < 4; i++) { fill(PIX); float bh = (i + 1) * u * 2.2f; c.drawRect(lcd.left + pad + i * u * 3, sy + u * 9 - bh, lcd.left + pad + i * u * 3 + u * 2, sy + u * 9, p); }
+            for (int i = 0; i < 4; i++) { fill(PIX); float bw = (4 - i) * u * 1.6f + u * 2; c.drawRect(lcd.right - pad - bw, sy + i * u * 2.4f, lcd.right - pad, sy + i * u * 2.4f + u * 1.6f, p); }
+            tx(c, header(), lcd.centerX(), sy + sm, sm, PIX, pf, Paint.Align.CENTER, lcd.width() - d(80));
+            // now playing: note + marquee title + pixel progress
+            float ny = sy + u * 9 + d(10);
+            String nt = np == null ? "No song playing" : np.title + " - " + np.artist + "     ";
+            float ntw = tw(nt, big, pf), nx = lcd.left + pad + big * 1.2f, avail = lcd.right - pad - nx;
+            fill(PIX); c.drawRect(lcd.left + pad, ny + big * .1f, lcd.left + pad + big * .9f, ny + big * .9f, p);
+            fill(LCD); tx(c, "♪", lcd.left + pad + big * .45f, ny + big * .82f, big * .8f, LCD, Typeface.DEFAULT_BOLD, Paint.Align.CENTER, 0);
+            c.save(); c.clipRect(nx, ny - d(2), lcd.right - pad, ny + big + d(4));
+            float scroll = ntw > avail && np != null ? ((t / 40) % (int) Math.max(1, ntw)) : 0;
+            tx(c, nt, nx - scroll, ny + big * .9f, big, PIX, pf, Paint.Align.LEFT, 0);
+            if (scroll > 0) tx(c, nt, nx - scroll + ntw, ny + big * .9f, big, PIX, pf, Paint.Align.LEFT, 0);
+            c.restore();
+            float py0 = ny + big + d(8); seek.set(lcd.left + pad, py0, lcd.right - pad - tw("00:00", sm, pf) - d(8), py0 + u * 4);
+            stroke(PIX, u); c.drawRect(seek, p); p.setStyle(Paint.Style.FILL);
+            int blocks = (int) (seek.width() / (u * 3)), lit = Math.round(blocks * seekFrac()); fill(PIX);
+            for (int i = 0; i < lit; i++) c.drawRect(seek.left + u + i * u * 3, seek.top + u, seek.left + u * 3 + i * u * 3, seek.bottom - u, p);
+            tx(c, fmt(seekPos()), lcd.right - pad, py0 + u * 4, sm, PIX, pf, Paint.Align.RIGHT, 0);
+            fill(PIX); c.drawRect(lcd.left + pad, py0 + u * 4 + d(8), lcd.right - pad, py0 + u * 4 + d(8) + u, p);
+            // list with inverted selection bar
+            float softH = sm + d(10), lt = py0 + u * 4 + d(12), lb = lcd.bottom - softH, rh = big * 1.75f;
+            int n = count(); if (sel >= n) sel = Math.max(0, n - 1);
+            if (follow && n > 0) { float sTop = sel * rh, vh = lb - lt; if (sTop < off) off = sTop; else if (sTop + rh > off + vh) off = sTop + rh - vh; follow = false; }
+            tmp.set(lcd.left, lt, lcd.right, lb); float o = listArea(tmp, rh);
+            c.save(); c.clipRect(list);
+            if (n == 0) tx(c, all.isEmpty() ? "No music" : "Empty", lcd.centerX(), lt + rh, big, PIX, pf, Paint.Align.CENTER, 0);
+            for (int i = Math.max(0, (int) (o / rh)); i < n; i++) {
+                float ry = lt + i * rh - o; if (ry > lb) break;
+                boolean s0 = i == sel || rowDown(i);
+                if (s0) { fill(PIX); c.drawRect(lcd.left + pad - u, ry + u, lcd.right - pad - u * 4, ry + rh - u, p); }
+                String tt = (current(i) ? "▸" : " ") + title(i);
+                tx(c, tt, lcd.left + pad + u, ry + rh * .68f, big, s0 ? LCD : PIX, pf, Paint.Align.LEFT, lcd.width() - 2 * pad - u * 6);
+            }
+            c.restore();
+            if (n > 0) { float tr = lb - lt, kn = Math.max(u * 4, tr * Math.min(1, (lb - lt) / (n * rh))), ky = lt + (tr - kn) * (maxOff > 0 ? o / maxOff : 0);
+                fill(PIX); c.drawRect(lcd.right - pad - u * 2, lt, lcd.right - pad - u, lb, p); c.drawRect(lcd.right - pad - u * 3, ky, lcd.right - pad, ky + kn, p); }
+            // softkey labels
+            tx(c, "Menu", lcd.left + pad, lcd.bottom - d(6), sm, PIX, pf, Paint.Align.LEFT, 0);
+            tx(c, tab == 0 && sel < n && current(sel) ? (playing() ? "Pause" : "Play") : "Select", lcd.centerX(), lcd.bottom - d(6), sm, PIX, pf, Paint.Align.CENTER, 0);
+            tx(c, fk != F_ALL || tab != 0 ? "Back" : "Find", lcd.right - pad, lcd.bottom - d(6), sm, PIX, pf, Paint.Align.RIGHT, 0);
+            c.restore();
+            // softkey touch zones on the LCD bottom row
+            tmp.set(lcd.left, lcd.bottom - softH, lcd.left + lcd.width() / 3, lcd.bottom); btn(B_MENU, tmp);
+            tmp.set(lcd.right - lcd.width() / 3, lcd.bottom - softH, lcd.right, lcd.bottom); btn(fk != F_ALL || tab != 0 ? B_BACK : B_BROWSE, tmp);
+            tmp.set(lcd.left + lcd.width() / 3, lcd.bottom - softH, lcd.right - lcd.width() / 3, lcd.bottom); btn(B_NAVI, tmp);
+            // tabs: tap the header to cycle Songs > Artists > Albums > Playlists
+            tmp.set(lcd.left + d(50), lcd.top, lcd.right - d(50), lcd.top + pad + u * 10); btn(B_TAB + (tab + 1) % 4, tmp);
+            // navi key row
+            float ky0 = bez.bottom + d(16), kh = Math.max(d(46), Math.min(d(64), (body.bottom - d(26) - ky0) / 5.2f));
+            RectF navi = new RectF(W / 2 - d(64), ky0, W / 2 + d(64), ky0 + kh * 1.05f); btn(B_NAVI, navi);
+            plastic(c, navi, kh * .55f, down(B_NAVI), 0xFFDDE3EC, 0xFF8F9AAD);
+            tx(c, "●", navi.centerX(), navi.centerY() + d(6), d(16), 0xFF33405A, reg, Paint.Align.CENTER, 0);
+            RectF ck = new RectF(body.left + d(28), ky0 + d(4), body.left + d(28) + d(64), ky0 + kh); btn(B_C, ck);
+            plastic(c, ck, d(20), down(B_C), 0xFF8EA6CF, 0xFF4E6A9E); tx(c, "C", ck.centerX(), ck.centerY() + d(7), d(19), WHITE, reg, Paint.Align.CENTER, 0);
+            RectF up = new RectF(body.right - d(92), ky0, body.right - d(28), ky0 + kh * .5f - d(2)); btn(B_UP, up);
+            RectF dn0 = new RectF(body.right - d(92), ky0 + kh * .5f + d(2), body.right - d(28), ky0 + kh); btn(B_DOWN, dn0);
+            plastic(c, up, d(14), down(B_UP), 0xFF8EA6CF, 0xFF4E6A9E); plastic(c, dn0, d(14), down(B_DOWN), 0xFF8EA6CF, 0xFF4E6A9E);
+            fill(WHITE); tri(c, p, up.centerX(), up.centerY(), d(10), 1); c.save(); c.rotate(-90, up.centerX(), up.centerY()); tri(c, p, up.centerX(), up.centerY(), d(10), 1); c.restore();
+            c.save(); c.rotate(90, dn0.centerX(), dn0.centerY()); tri(c, p, dn0.centerX(), dn0.centerY(), d(10), 1); c.restore();
+            fill(0xFF8EA6CF); // keypad
+            float gy = navi.bottom + d(14), gw = (body.width() - d(56)) / 3, gh = Math.min(kh, (body.bottom - d(24) - gy) / 4);
+            for (int i = 0; i < 12; i++) {
+                int r = i / 3, col = i % 3;
+                RectF k = new RectF(body.left + d(28) + col * gw + d(5), gy + r * gh + d(4), body.left + d(28) + (col + 1) * gw - d(5), gy + (r + 1) * gh - d(4));
+                btn(B_KEY + i, k); plastic(c, k, k.height() * .45f, down(B_KEY + i), 0xFFC9D2E0, 0xFF7E8AA0);
+                tx(c, KD[i], k.left + k.width() * .3f, k.centerY() + d(7), d(20), 0xFF1F2A40, reg, Paint.Align.CENTER, 0);
+                tx(c, KF[i], k.left + k.width() * .64f, k.centerY() + d(4.5f), d(11), 0xFF2E4A7E, reg, Paint.Align.CENTER, k.width() * .5f);
+            }
+        }
+    }
+
+    AudioTrack squareTone(int hz, int ms, float vol) {
+        try {
+            int sr = 22050, n = sr * ms / 1000; byte[] b = new byte[n * 2];
+            for (int i = 0; i < n; i++) {
+                double ph = (i * (double) hz / sr) % 1.0;
+                short v = (short) ((ph < .5 ? 1 : -1) * 4200 * (1 - i / (double) n * .4));
+                b[2 * i] = (byte) (v & 255); b[2 * i + 1] = (byte) ((v >> 8) & 255);
+            }
+            AudioTrack t = new AudioTrack(AudioManager.STREAM_MUSIC, sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT, b.length, AudioTrack.MODE_STATIC);
+            t.write(b, 0, b.length); t.setVolume(vol); return t;
+        } catch (Throwable e) { return null; }
+    }
+
+    /** Visualizer level for bar i of n, from the song's real beats (falls back to a gentle random pulse). */
+    float viz(int i, int n) { return (float) Math.pow(rnd.nextFloat(), 1.3) * (1f - i * .5f / n); }
 }

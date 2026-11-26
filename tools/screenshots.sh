@@ -48,7 +48,8 @@ shot() {   # shot NAME WAIT_SECONDS am-start-extras...
 }
 
 # themes by number (names with spaces get split by the device shell):
-# 0 iPod Classic, 1 Windows XP, 2 Windows 95, 3 Game Boy, 4 Winamp, 5 Cassette, 6 iTunes 2011, 7 secret
+# 0 iPod Classic, 1 Windows XP, 2 Windows 95, 3 Game Boy, 4 Winamp, 5 Cassette, 6 iTunes 2011,
+# 7 Zune, 8 Walkman, 9 PSP, 10 Windows Media Player 11, 11 Nokia, 12 secret
 shot itunes     5 --ei td_skin 6 --ei td_play 0 --ef td_seek 0.35
 shot ipod       5 --ei td_skin 0 --ei td_play 1 --ef td_seek 0.30
 shot xp         5 --ei td_skin 1 --ei td_play 2 --ef td_seek 0.42
@@ -56,14 +57,22 @@ shot win95      5 --ei td_skin 2 --ei td_play 3 --ef td_seek 0.25
 shot gameboy    5 --ei td_skin 3 --ei td_play 4 --ef td_seek 0.55
 shot winamp     5 --ei td_skin 4 --ei td_play 5 --ef td_seek 0.38
 shot cassette   5 --ei td_skin 5 --ei td_play 6 --ef td_seek 0.61
-shot undertale  6 --ei td_skin 7 --ei td_play 7 --ef td_seek 0.20
-shot fight     14 --ei td_skin 7 --ei td_play 9 --ef td_seek 0.15 --ez td_fight true
+shot zune       5 --ei td_skin 7 --ei td_play 2 --ef td_seek 0.33
+shot walkman    5 --ei td_skin 8 --ei td_play 4 --ef td_seek 0.40
+shot psp        5 --ei td_skin 9 --ei td_play 5 --ef td_seek 0.27
+shot wmp        5 --ei td_skin 10 --ei td_play 8 --ef td_seek 0.45
+shot wmp-now    5 --ei td_skin 10 --ei td_play 8 --ef td_seek 0.50 --ez td_now true
+shot nokia      5 --ei td_skin 11 --ei td_play 1 --ef td_seek 0.22
+shot undertale  6 --ei td_skin 12 --ei td_play 7 --ef td_seek 0.20
+shot fight     14 --ei td_skin 12 --ei td_play 9 --ef td_seek 0.15 --ez td_fight true
 
 # 1.3: themed menus, playlists, Wrapped (td_seed fills in demo listening stats + two playlists)
 shot menu-xp       5 --ei td_skin 1 --ei td_menu 1
 shot menu-itunes   5 --ei td_skin 6 --ei td_menu 2
-shot menu-ut       5 --ei td_skin 7 --ei td_menu 3
+shot menu-ut       5 --ei td_skin 12 --ei td_menu 3
 shot menu-ipod     5 --ei td_skin 0 --ei td_menu 1
+shot menu-zune     5 --ei td_skin 7 --ei td_menu 1
+shot menu-nokia    5 --ei td_skin 11 --ei td_menu 2
 shot playlists     5 --ei td_skin 6 --ez td_seed true --ei td_tab 3
 shot wrapped-song  5 --ez td_seed true --ei td_wrapped 2
 shot wrapped-top   5 --ei td_wrapped 3
