@@ -22,9 +22,29 @@ Free, open source, no ads, no accounts, no internet needed.</p>
   <img src="screenshots/notification.png" width="24%" alt="Lock screen and notification controls">
 </p>
 
+<p align="center"><b>Menus match the theme you're in</b></p>
+<p align="center">
+  <img src="screenshots/menu-xp.png" width="24%" alt="Windows XP style menu">
+  <img src="screenshots/menu-itunes.png" width="24%" alt="iPhone OS action sheet">
+  <img src="screenshots/menu-ipod.png" width="24%" alt="iPod style menu">
+  <img src="screenshots/playlists.png" width="24%" alt="Playlists">
+</p>
+
+<p align="center"><b>Your own Wrapped, and a home-screen widget</b> <i>(screenshots use demo listening data)</i></p>
+<p align="center">
+  <img src="screenshots/wrapped-song.png" width="24%" alt="Wrapped: your top song">
+  <img src="screenshots/wrapped-top.png" width="24%" alt="Wrapped: top songs">
+  <img src="screenshots/wrapped-card.png" width="24%" alt="Wrapped summary card">
+  <img src="screenshots/widget.png" width="24%" alt="Home-screen widget">
+</p>
+
 ## Features
 
 - **8 hand-drawn themes**: iPod Classic (working click wheel), Windows XP, Windows 95, Game Boy, Winamp, Cassette, iTunes 2011, and one secret.
+- **Every menu matches the theme**: XP windows in XP, an iPhone OS action sheet in iTunes, Undertale boxes in the secret theme, and so on.
+- **Playlists**: make, rename, reorder and delete them; save the queue as a playlist. Stored on your phone.
+- **Wrapped**: your top songs, top artists, minutes listened, listening clock, streaks and your listening personality, as tap-through story slides. Stats are counted on your phone only.
+- **Home-screen widget**: cover, title and controls; it works even when the app is closed.
 - **Keeps playing in the background**: notification and lock-screen controls, headphone and Bluetooth buttons, pauses when you unplug headphones or get a call.
 - **A shuffle that actually shuffles**: every song plays once before anything repeats.
 - **Find anything**: search, artists, albums, favorites ♥, recently added, most played.
@@ -32,7 +52,7 @@ Free, open source, no ads, no accounts, no internet needed.</p>
 - **Sleep timer** (fades out gently, or stops when the song ends), **equalizer** presets, **playback speed**.
 - **Picks up where you left off**: same queue, same song, same spot.
 - Real album art everywhere (pixel-art versions in the pixel themes).
-- Tiny APK, no trackers, no network permission at all.
+- **Works 100% offline.** Tiny APK, no accounts, no trackers, no network permission at all.
 
 ## The secret theme
 
@@ -46,7 +66,7 @@ Play any song from **Undertale** or **Deltarune** and Tape Deck notices: *"You a
   <img src="screenshots/fight.png" width="32%" alt="Beat-synced fight">
 </p>
 
-- Tap **FIGHT**: the song becomes the enemy and **attacks on its own beats**. Tape Deck decodes the track and finds the kicks and snares, so bones, spears, rings of bullets and blasters land with the music, and the attack style changes every 16 beats.
+- Tap **FIGHT** and pick **Easy, Normal or Hard**: the song becomes the enemy and **attacks on its own beats**. Tape Deck decodes the track and finds the kicks and snares, so bones, spears, rings of bullets and blasters land with the music, and the attack style changes every 16 beats.
 - Drag anywhere to move your SOUL (it follows your finger's movement, so your thumb never covers it).
 - Tap **FIGHT** right *on the beat* for PERFECT hits and combos. **ACT** checks the song's tempo, **ITEM** heals (3 per fight), **MERCY** spares it.
 - Survive until the song ends to win, and the next song steps up.
@@ -92,6 +112,7 @@ src/com/rxvy/tapedeck/
   Player.java           playback engine: queue, shuffle order, audio focus, sleep timer, EQ, resume
   PlaybackService.java  background playback, media notification, lock screen, headset buttons
   Beats.java            beat detection for the fight (decodes the song, finds energy onsets)
+  TapeWidget.java       home-screen widget
   Song.java
 assets/                 fonts (+ their licenses)
 tools/                  demo-song generator + screenshot robot

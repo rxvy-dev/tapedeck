@@ -2542,9 +2542,9 @@ public class MainActivity extends Activity implements Player.Listener {
             // difficulty: 0 easy, 1 normal, 2 hard
             final int diff = diff();
             final float SPD = new float[]{.55f, .75f, 1f}[diff], SKIP = new float[]{.55f, .38f, .22f}[diff], HITBOX = new float[]{.4f, .55f, .75f}[diff],
-                COUNT = new float[]{.5f, .75f, 1f}[diff], GAP = new float[]{1.7f, 1.3f, 1f}[diff];
+                COUNT = new float[]{.38f, .7f, 1f}[diff], GAP = new float[]{1.7f, 1.3f, 1f}[diff];
             final int MAXHP = new int[]{40, 24, 16}[diff], DMG = new int[]{2, 3, 4}[diff], INV = new int[]{1600, 1200, 850}[diff],
-                COOL = new int[]{420, 280, 120}[diff], WARN = new int[]{850, 650, 480}[diff], PERF = new int[]{160, 125, 95}[diff], GOOD = new int[]{320, 240, 170}[diff],
+                COOL = new int[]{520, 300, 120}[diff], WARN = new int[]{850, 650, 480}[diff], PERF = new int[]{160, 125, 95}[diff], GOOD = new int[]{320, 240, 170}[diff],
                 REGEN = new int[]{2500, 5000, 0}[diff];
             long lastSpawn, lastHurt, lastRegen;
             int hp = MAXHP, items = new int[]{6, 4, 2}[diff], combo, best, score, dodged, gold, nextBeat, lastPos = -1, fmode = -1, fpressed = -1, wins;

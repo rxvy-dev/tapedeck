@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0 - 2026-11-25
+- **Every menu now matches the theme**: XP and 95 windows, an iPhone OS action sheet in iTunes, iPod, Game Boy, Winamp, Cassette and Undertale styles. No more plain Android pop-ups.
+- **Playlists**: create, rename, reorder (hold a song > Move Up/Down), remove, delete, and save the queue as a playlist. New Playlists tab in iTunes and a Playlists menu on the iPod.
+- **Wrapped**: story slides with your minutes listened, #1 song, top songs and artists, listening clock, streaks and listening personality. All counted on the phone.
+- **Home-screen widget** with cover, title and previous / play-pause / next. Brings back your last queue even if the app was closed.
+- **Fights are easier**: choose Easy, Normal or Hard. Easy has slower and fewer bullets, 40 HP, health regen, a smaller hitbox, and wider timing for PERFECT hits.
+- Beat detection starts where the song is playing and streams results, so attacks begin within a second.
+- Fixed a crash when the last hit ended a fight.
+
 ## 1.2.0 - 2026-11-25
 **The big one.**
 - **Background playback**: music keeps going with the screen off or the app closed. Notification and lock-screen controls, headphone and Bluetooth buttons, pauses for calls and when headphones are unplugged.
