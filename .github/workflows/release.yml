@@ -1,11 +1,15 @@
 name: Release
-# Push a tag like v1.2.0 and this builds the APK and attaches it to a GitHub Release.
+# Makes a GitHub Release with TapeDeck.apk when:
+#   * you push a tag like v1.2.0, or
+#   * AndroidManifest.xml on main has a versionName that has no release yet (bump the version -> new release).
 # (publish.sh does the same from your PC; if it already uploaded the APK, this job leaves it alone.)
 # Optional: sign with your own key by adding repo secrets TAPEDECK_KEYSTORE_B64 (base64 of the .keystore),
 # TAPEDECK_KEYSTORE_PASS and TAPEDECK_KEY_ALIAS. Without them the bundled debug.keystore is used.
 on:
   push:
     tags: ['v*']
+    branches: [main]
+    paths: ['AndroidManifest.xml', '.github/workflows/release.yml']
   workflow_dispatch:
     inputs:
       tag: { description: 'Tag to (re)build, e.g. v1.2.0', required: true }
@@ -18,15 +22,19 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      TAG: ${{ github.event.inputs.tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name || '') }}
     steps:
       - uses: actions/checkout@v4
         with: { ref: '${{ github.event.inputs.tag || github.ref }}' }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
+      - name: Which version?
+        run: |
+          if [ -z "$TAG" ]; then echo "TAG=v$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml)" >> "$GITHUB_ENV"; fi
       - name: Already released?
         id: check
         run: |
+          echo "Release tag: $TAG"
           if gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx TapeDeck.apk; then
             echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Release $TAG already has TapeDeck.apk"
           fi
@@ -54,5 +62,5 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" TapeDeck.apk --clobber
           else
-            gh release create "$TAG" TapeDeck.apk --title "Tape Deck $VER" --notes-file notes.md
+            gh release create "$TAG" TapeDeck.apk --target "$GITHUB_SHA" --title "Tape Deck $VER" --notes-file notes.md
           fi
