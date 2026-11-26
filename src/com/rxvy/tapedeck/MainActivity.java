@@ -173,7 +173,7 @@ public class MainActivity extends Activity implements Player.Listener {
         pl.playList(all, i);
         h.postDelayed(new Runnable() { public void run() {
             pl.seek((int) (pl.dur() * demoSeek));
-            if (demoFight && view instanceof Ut) ((Ut) view).startFight();
+            if (demoFight && view instanceof Ut) { ((Ut) view).startFight(); if (((Ut) view).fight != null) ((Ut) view).fight.demo = true; }
         }}, 400);
     }
 
@@ -1779,7 +1779,7 @@ public class MainActivity extends Activity implements Player.Listener {
             Beats beats; long songId = Long.MIN_VALUE; String songTitle = "";
             final ArrayList<Shot> shots = new ArrayList<>();
             float sx = -1, sy, lx, ly, pulse;
-            boolean over;
+            boolean over, demo;   // demo: screenshot robot (SOUL dodges by itself, can't be hurt)
             final RectF rEnemy = new RectF(), rBoxF = new RectF(); final RectF[] fb = {new RectF(), new RectF(), new RectF(), new RectF()};
             final String[] NAMES = {"FIGHT", "ACT", "ITEM", "MERCY"};
             final String[] FOOD = {"* You ate the Butterscotch Pie. Your HP was maxed out.", "* You ate the Instant Noodles. You recovered 15 HP!", "* You ate a Snowman Piece. You recovered 10 HP!"};
@@ -1855,7 +1855,7 @@ public class MainActivity extends Activity implements Player.Listener {
             }
 
             void hurt(int dmg, long t0) {
-                if (t0 < invUntil || over) return;
+                if (t0 < invUntil || over || demo) return;
                 hp = Math.max(0, hp - dmg); invUntil = t0 + 900; shakeUntil = t0 + 220; combo = 0; beep(sHit);
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                 if (hp == 0) { over = true; overAt = t0; shots.clear(); }
@@ -1866,6 +1866,7 @@ public class MainActivity extends Activity implements Player.Listener {
                 if (s == null) return;
                 if (s.id != songId) meet(s, t0);
                 pulse = Math.max(0, pulse - dt * 4);
+                if (demo) { sx = rBoxF.centerX() + (float) Math.sin(t0 / 700.0) * rBoxF.width() * .3f; sy = rBoxF.centerY() + (float) Math.sin(t0 / 450.0) * rBoxF.height() * .25f; }
                 int p = pos();
                 if (beats != null && !over) {
                     if (lastPos >= 0 && (p < lastPos - 400 || p > lastPos + 1500)) nextBeat = beats.after(p);   // seeked
@@ -1878,14 +1879,14 @@ public class MainActivity extends Activity implements Player.Listener {
                     Shot o = shots.get(i);
                     if (o.k == BEAM) {
                         if (t0 > o.t1) { shots.remove(i); if (!o.hit) { dodged++; score += 3; } continue; }
-                        if (t0 >= o.t0 && (o.a == 1 ? Math.abs(o.y - sy) : Math.abs(o.x - sx)) < o.b / 2 + sr * .6f) { o.hit = true; hurt(6, t0); }
+                        if (t0 >= o.t0 && (o.a == 1 ? Math.abs(o.y - sy) : Math.abs(o.x - sx)) < o.b / 2 + sr * .6f) { o.hit = true; hurt(6, t0); if (over) return; }
                         continue;
                     }
                     o.x += o.vx * dt; o.y += o.vy * dt;
                     boolean in;
                     if (o.k == BONE) in = Math.abs(o.x - sx) < o.b / 2 + sr * .7f && Math.abs(o.y - sy) < o.a + sr * .7f;
                     else { float dx = o.x - sx, dy = o.y - sy, rr = (o.k == SPEAR ? d(5) : o.a) + sr * .7f; in = dx * dx + dy * dy < rr * rr; }
-                    if (in && !o.hit) { o.hit = true; hurt(o.k == BONE ? 4 : 3, t0); shots.remove(i); continue; }
+                    if (in && !o.hit) { o.hit = true; hurt(o.k == BONE ? 4 : 3, t0); if (over) return; shots.remove(i); continue; }   // game over clears the list
                     float m = d(40);
                     if (o.x < bl - m || o.x > br + m || o.y < bt - m || o.y > bb + m) { shots.remove(i); if (!o.hit) { dodged++; score += 1; } }
                 }
