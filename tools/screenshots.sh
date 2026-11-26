@@ -24,6 +24,12 @@ for i in $(seq 1 30); do
 done
 sleep 2
 
+# the emulator's launcher is slow on CI and pops "isn't responding" dialogs: hide them
+adb shell settings put global hide_error_dialogs 1 || true
+adb shell settings put secure anr_show_background 0 || true
+adb shell am force-stop com.google.android.apps.nexuslauncher || true
+adb shell input keyevent KEYCODE_BACK || true
+
 # tidy status bar (12:00, full battery, no notification icons)
 adb shell settings put global sysui_demo_allowed 1
 adb shell am broadcast -a com.android.systemui.demo -e command enter
@@ -35,6 +41,7 @@ adb shell am broadcast -a com.android.systemui.demo -e command notifications -e 
 shot() {   # shot NAME WAIT_SECONDS am-start-extras...
   local name=$1 wait=$2; shift 2
   adb shell am force-stop $PKG
+  adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
   adb shell am start -W -n $PKG/.MainActivity "$@"
   sleep "$wait"
   adb exec-out screencap -p > "$OUT/$name.png"

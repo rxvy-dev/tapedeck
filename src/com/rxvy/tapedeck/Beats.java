@@ -44,7 +44,21 @@ public final class Beats {
         return new Beats(s.id, a, p, bpm, false);
     }
 
+    static final java.util.LinkedHashMap<Long, Beats> cache = new java.util.LinkedHashMap<Long, Beats>(16, .75f, true) {
+        @Override protected boolean removeEldestEntry(java.util.Map.Entry<Long, Beats> e) { return size() > 24; }
+    };
+
+    public static Beats cached(long id) { synchronized (cache) { return cache.get(id); } }
+
     public static Beats analyze(Context ctx, Song s, int durMs) {
+        Beats b = cached(s.id);
+        if (b != null) return b;
+        b = decode(ctx, s, durMs);
+        if (b.real) synchronized (cache) { cache.put(s.id, b); }
+        return b;
+    }
+
+    static Beats decode(Context ctx, Song s, int durMs) {
         MediaExtractor ex = new MediaExtractor(); MediaCodec dec = null;
         try {
             ex.setDataSource(ctx, Player.uri(s), null);
@@ -62,30 +76,40 @@ public final class Beats {
             // energy envelope: one value per ~11.6 ms hop, bass (one-pole low-pass ~150 Hz) and full band
             int hop = Math.max(64, rate / 86);
             float a = (float) (2 * Math.PI * 150 / rate), lp = 0, eb = 0, ef = 0; int k = 0;
+            short[] pcm = new short[8192];
             float[] bass = new float[Math.max(1024, (int) ((long) Math.max(durMs, 1000) * 86 / 1000) + 2048)], full = new float[bass.length]; int n = 0;
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo(); boolean inDone = false, outDone = false; int idle = 0;
-            while (!outDone && idle < 200) {
-                if (!inDone) {
-                    int ii = dec.dequeueInputBuffer(5000);
-                    if (ii >= 0) {
-                        ByteBuffer ib = dec.getInputBuffer(ii); int sz = ex.readSampleData(ib, 0);
-                        if (sz < 0) { dec.queueInputBuffer(ii, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM); inDone = true; }
-                        else { dec.queueInputBuffer(ii, 0, sz, ex.getSampleTime(), 0); ex.advance(); }
-                    }
+            long deadline = System.currentTimeMillis() + 60000;
+            while (!outDone && idle < 300 && System.currentTimeMillis() < deadline) {
+                // feed every free input buffer without waiting
+                while (!inDone) {
+                    int ii = dec.dequeueInputBuffer(0);
+                    if (ii < 0) break;
+                    ByteBuffer ib = dec.getInputBuffer(ii); int sz = ib == null ? -1 : ex.readSampleData(ib, 0);
+                    if (sz < 0) { dec.queueInputBuffer(ii, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM); inDone = true; }
+                    else { dec.queueInputBuffer(ii, 0, sz, ex.getSampleTime(), 0); ex.advance(); }
                 }
-                int oi = dec.dequeueOutputBuffer(info, 5000);
-                if (oi == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    MediaFormat of = dec.getOutputFormat();
-                    if (of.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) ch = of.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
-                    if (of.containsKey(MediaFormat.KEY_SAMPLE_RATE)) { rate = of.getInteger(MediaFormat.KEY_SAMPLE_RATE); hop = Math.max(64, rate / 86); a = (float) (2 * Math.PI * 150 / rate); }
-                } else if (oi >= 0) {
-                    idle = 0;
+                // drain everything that's ready (only block briefly when nothing is)
+                boolean got = false;
+                while (true) {
+                    int oi = dec.dequeueOutputBuffer(info, got ? 0 : 2000);
+                    if (oi == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                        MediaFormat of = dec.getOutputFormat();
+                        if (of.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) ch = of.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                        if (of.containsKey(MediaFormat.KEY_SAMPLE_RATE)) { rate = of.getInteger(MediaFormat.KEY_SAMPLE_RATE); hop = Math.max(64, rate / 86); a = (float) (2 * Math.PI * 150 / rate); }
+                        continue;
+                    }
+                    if (oi < 0) break;
+                    got = true;
                     ByteBuffer ob = dec.getOutputBuffer(oi);
                     if (ob != null && info.size > 0) {
                         ob.position(info.offset); ob.limit(info.offset + info.size);
-                        ShortBuffer sb = ob.order(ByteOrder.nativeOrder()).asShortBuffer(); int frames = sb.remaining() / Math.max(1, ch);
-                        for (int f = 0; f < frames; f++) {
-                            float x = 0; for (int c = 0; c < ch; c++) x += sb.get(); x /= (ch * 32768f);
+                        ShortBuffer sb = ob.order(ByteOrder.nativeOrder()).asShortBuffer(); int len = sb.remaining();
+                        if (pcm.length < len) pcm = new short[len];
+                        sb.get(pcm, 0, len);
+                        int c1 = Math.max(1, ch); float inv = 1f / (c1 * 32768f);
+                        for (int f = 0; f + c1 <= len; f += c1) {
+                            float x = 0; for (int c = 0; c < c1; c++) x += pcm[f + c]; x *= inv;
                             lp += a * (x - lp); eb += lp * lp; ef += x * x;
                             if (++k >= hop) {
                                 if (n == bass.length) { bass = Arrays.copyOf(bass, n * 2); full = Arrays.copyOf(full, n * 2); }
@@ -94,8 +118,9 @@ public final class Beats {
                         }
                     }
                     dec.releaseOutputBuffer(oi, false);
-                    if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outDone = true;
-                } else if (inDone) idle++;
+                    if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) { outDone = true; break; }
+                }
+                if (got) idle = 0; else if (inDone) idle++;
             }
             if (n < 100) return fallback(s, durMs);
             return pick(s.id, bass, full, n, 1000f * hop / rate);

@@ -1792,7 +1792,9 @@ public class MainActivity extends Activity implements Player.Listener {
                     wins++; int exp = 10 + score / 10; gold += 5 + dodged / 4;
                     tell("* YOU WON!  You earned " + exp + " EXP and " + (5 + dodged / 4) + " gold.", 3500);
                 } else tell("* " + s.title + " draws near!", 3000);
-                songId = s.id; songTitle = s.title; beats = null; shots.clear(); nextBeat = 0; lastPos = -1;
+                songId = s.id; songTitle = s.title; shots.clear(); nextBeat = 0; lastPos = -1;
+                beats = Beats.cached(s.id);
+                if (beats != null) { nextBeat = beats.after(pos()); lastPos = pos(); return; }
                 final int du = dur();
                 try {
                     beatEx.execute(new Runnable() { public void run() {
@@ -1892,11 +1894,11 @@ public class MainActivity extends Activity implements Player.Listener {
             void draw(Canvas c, float W, float H, long t0, float dt) {
                 float m = d(12);
                 // layout
-                float es = Math.min(W * .40f, H * .21f), top = d(30);
+                float es = Math.min(W * .46f, H * .22f), top = d(32);
                 rEnemy.set((W - es) / 2, top, (W + es) / 2, top + es);
-                float bh = Math.max(d(150), H * .27f), btnH = d(46), btnY = H - m - btnH;
-                float statY = btnY - d(12) - d(20);
-                rBoxF.set(m, statY - d(10) - bh, W - m, statY - d(10));
+                float btnH = d(46), btnY = H - m - btnH, statY = btnY - d(12) - d(20);
+                float msgEnd = rEnemy.bottom + d(10) + d(26) + ts(M) * 1.4f * 2;
+                rBoxF.set(m, Math.min(msgEnd + d(6), statY - d(10) - d(150)), W - m, statY - d(10));
                 if (sx < 0) { sx = rBoxF.centerX(); sy = rBoxF.centerY(); }
                 sx = Math.max(rBoxF.left + d(10), Math.min(rBoxF.right - d(10), sx)); sy = Math.max(rBoxF.top + d(10), Math.min(rBoxF.bottom - d(10), sy));
                 update(t0, dt);
