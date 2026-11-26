@@ -1,0 +1,58 @@
+name: Release
+# Push a tag like v1.2.0 and this builds the APK and attaches it to a GitHub Release.
+# (publish.sh does the same from your PC; if it already uploaded the APK, this job leaves it alone.)
+# Optional: sign with your own key by adding repo secrets TAPEDECK_KEYSTORE_B64 (base64 of the .keystore),
+# TAPEDECK_KEYSTORE_PASS and TAPEDECK_KEY_ALIAS. Without them the bundled debug.keystore is used.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag: { description: 'Tag to (re)build, e.g. v1.2.0', required: true }
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ github.event.inputs.tag || github.ref }}' }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Already released?
+        id: check
+        run: |
+          if gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx TapeDeck.apk; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Release $TAG already has TapeDeck.apk"
+          fi
+      - name: Signing key (optional)
+        if: steps.check.outputs.skip != 'true'
+        env:
+          KS_B64: ${{ secrets.TAPEDECK_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.TAPEDECK_KEYSTORE_PASS }}
+          KS_ALIAS: ${{ secrets.TAPEDECK_KEY_ALIAS }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            { echo "TAPEDECK_KEYSTORE=$RUNNER_TEMP/release.keystore"; echo "TAPEDECK_KEYSTORE_PASS=$KS_PASS"; echo "TAPEDECK_KEY_ALIAS=$KS_ALIAS"; } >> "$GITHUB_ENV"
+          fi
+      - name: Build
+        if: steps.check.outputs.skip != 'true'
+        run: chmod +x build.sh && ./build.sh
+      - name: Publish release
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          VER="${TAG#v}"
+          awk -v v="$VER" '$0 ~ "^## "v {f=1; next} /^## / && f {exit} f' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Tape Deck $VER" > notes.md
+          printf '\n---\n**Install:** download `TapeDeck.apk` below and open it on your phone (allow "install unknown apps").\n' >> notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" TapeDeck.apk --clobber
+          else
+            gh release create "$TAG" TapeDeck.apk --title "Tape Deck $VER" --notes-file notes.md
+          fi

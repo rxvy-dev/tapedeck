@@ -1,0 +1,8 @@
+build/
+.cache/
+TapeDeck.apk
+demo-music/
+logcat.txt
+CHANGELOG.tmp
+*.keystore
+!debug.keystore
