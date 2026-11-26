@@ -4,6 +4,7 @@ import android.content.Context;
 import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
+import android.util.Log;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.ShortBuffer;
@@ -53,7 +54,9 @@ public final class Beats {
     public static Beats analyze(Context ctx, Song s, int durMs) {
         Beats b = cached(s.id);
         if (b != null) return b;
+        long t = System.currentTimeMillis();
         b = decode(ctx, s, durMs);
+        Log.i("TapeDeck", "beats: " + s.title + " -> " + b.at.length + " beats, " + b.bpm + " bpm, real=" + b.real + " in " + (System.currentTimeMillis() - t) + " ms");
         if (b.real) synchronized (cache) { cache.put(s.id, b); }
         return b;
     }
@@ -122,9 +125,11 @@ public final class Beats {
                 }
                 if (got) idle = 0; else if (inDone) idle++;
             }
+            Log.i("TapeDeck", "beats: decoded " + n + " hops, rate " + rate + ", ch " + ch + ", done=" + outDone + ", idle=" + idle);
             if (n < 100) return fallback(s, durMs);
             return pick(s.id, bass, full, n, 1000f * hop / rate);
         } catch (Throwable e) {
+            Log.w("TapeDeck", "beats: decode failed for " + s.title, e);
             return fallback(s, durMs);
         } finally {
             try { if (dec != null) { dec.stop(); dec.release(); } } catch (Throwable e) { }

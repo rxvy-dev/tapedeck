@@ -67,4 +67,5 @@ adb exec-out screencap -p > "$OUT/notification.png"
 adb shell cmd statusbar collapse
 
 adb logcat -d -t 400 > logcat.txt || true
+echo "----- app log -----"; adb logcat -d -s TapeDeck:V AndroidRuntime:E | tail -60 || true
 ls -la "$OUT"
