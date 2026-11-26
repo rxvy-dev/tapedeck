@@ -1795,15 +1795,16 @@ public class MainActivity extends Activity implements Player.Listener {
                 songId = s.id; songTitle = s.title; shots.clear(); nextBeat = 0; lastPos = -1;
                 beats = Beats.cached(s.id);
                 if (beats != null) { nextBeat = beats.after(pos()); lastPos = pos(); return; }
-                final int du = dur();
+                final int du = dur(), at = pos();
                 try {
                     beatEx.execute(new Runnable() { public void run() {
-                        final Beats b = Beats.analyze(MainActivity.this, s, du);
-                        h.post(new Runnable() { public void run() {
-                            if (fight == Fight.this && songId == s.id) { beats = b; nextBeat = b.after(pos()); lastPos = pos(); }
+                        Beats.analyze(MainActivity.this, s, du, at, new Beats.Sink() { public void got(final Beats b) {
+                            h.post(new Runnable() { public void run() {
+                                if (fight == Fight.this && songId == s.id) { beats = b; nextBeat = b.after(pos()); lastPos = pos(); }
+                            }});
                         }});
                     }});
-                } catch (Exception e) { beats = Beats.fallback(s, du); }
+                } catch (Exception e) { beats = Beats.fallback(s.id, du); }
             }
 
             void onBeat(float pw, int idx, long t0) {
