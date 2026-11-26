@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.0 - 2026-11-25
+- **Five new themes**:
+  - **Zune**: black Metro look, huge lowercase type, pivot headers, magenta accent.
+  - **Walkman**: an 80s cassette player. Piano keys, a brushed-metal body, reels that spin, tape that moves from spool to spool as the song plays, and a handwritten J-card track list.
+  - **PSP**: the XrossMediaBar, with the colour of the month and the moving waves.
+  - **Windows Media Player 11**: black glass, Now Playing with a mirrored cover, Vista-blue Library, the big round play button.
+  - **Nokia**: a green-screen candybar phone with a keypad that works (2/8 scroll, 5 play, 4/6 skip, 1 shuffle, 3 repeat, * menu). Try *#06#.
+- Every new theme has its own menu style.
+
 ## 1.3.0 - 2026-11-25
 - **Every menu now matches the theme**: XP and 95 windows, an iPhone OS action sheet in iTunes, iPod, Game Boy, Winamp, Cassette and Undertale styles. No more plain Android pop-ups.
 - **Playlists**: create, rename, reorder (hold a song > Move Up/Down), remove, delete, and save the queue as a playlist. New Playlists tab in iTunes and a Playlists menu on the iPod.

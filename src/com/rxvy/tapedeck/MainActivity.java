@@ -552,7 +552,7 @@ public class MainActivity extends Activity implements Player.Listener {
                 try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(REPO))); } catch (Exception e) { toast(REPO); }
             }}, null })
             .msg("A retro music player for the files on your phone. Works fully offline. Free and open source (MIT).\n\n" + all.size() + " songs, " + artistNames().size() + " artists, " + playlists.size() + " playlists\n\n"
-                + "Fonts: Determination by anonymous-1438277 (Fontstruct, CC BY 3.0), Press Start 2P (SIL OFL), Monster Friend. Not affiliated with Apple, Microsoft, Nintendo, Nullsoft or Toby Fox.").show();
+                + "Fonts: Determination by anonymous-1438277 (Fontstruct, CC BY 3.0), Press Start 2P (SIL OFL), Monster Friend. Not affiliated with Apple, Microsoft, Sony, Nokia, Nintendo, Nullsoft or Toby Fox.").show();
     }
 
     // ---------- delete (system "move to trash" prompt on Android 11+) ----------
@@ -3678,7 +3678,7 @@ public class MainActivity extends Activity implements Player.Listener {
             fill(0x22FFFFFF); c.drawRect(0, 0, W, tbh * .45f, p);
             String[] tn = {"Now Playing", "Library", "Rip", "Burn", "Sync"}; int[] ti = {B_NOW, B_LIB, B_RIP, B_BURN, B_SYNC};
             float tot = 0; for (String s : tn) tot += tw(s, d(13.5f), bold) + d(22);
-            float x = Math.max(m, (W - tot) / 2);
+            float x = Math.max(m, (W - d(40) - tot) / 2);
             for (int i = 0; i < 5; i++) {
                 float w0 = tw(tn[i], d(13.5f), bold) + d(22); tmp.set(x, d(4), x + w0, tbh - d(4)); btn(ti[i], tmp);
                 boolean sel = (i == 0 && nowView) || (i == 1 && !nowView);
@@ -3740,18 +3740,19 @@ public class MainActivity extends Activity implements Player.Listener {
             } else {
                 // Now Playing: big cover with a reflection + visualization
                 p.setShader(new RadialGradient(W / 2, top + (bot - top) * .4f, W * .9f, 0xFF10284D, 0xFF000000, Shader.TileMode.CLAMP)); c.drawRect(0, top, W, bot, p); p.setShader(null);
-                float as = Math.min(W * .62f, (bot - top) * .45f), ax = (W - as) / 2, ay = top + d(24);
+                float as = Math.min(W * .62f, (bot - top) * .42f), ax = (W - as) / 2, ay = top + d(24), refl = as * .3f;
                 tmp.set(ax, ay, ax + as, ay + as);
                 if (np != null) {
                     art(c, np, tmp, 0xFF1A2230, 0xFF4A5A70);
                     Bitmap a = artFor(np);
-                    if (a != null) {
-                        c.save(); c.translate(0, ay + as * 2 + d(2)); c.scale(1, -1); tmp.set(ax, ay, ax + as, ay + as);
-                        p.setAlpha(80); p.setFilterBitmap(true); c.drawBitmap(a, new Rect(0, 0, a.getWidth(), a.getHeight()), tmp, p); p.setAlpha(255); c.restore();
-                        p.setShader(lg(0, ay + as, 0, ay + as + as * .5f, 0x00000000, 0xFF000000)); c.drawRect(ax - d(1), ay + as, ax + as + d(1), ay + as + as * .5f + d(1), p); p.setShader(null);
+                    if (a != null) {   // Vista-style reflection under the cover
+                        c.save(); c.clipRect(ax, ay + as + d(2), ax + as, ay + as + d(2) + refl);
+                        c.translate(0, ay + as * 2 + d(2)); c.scale(1, -1); tmp.set(ax, ay, ax + as, ay + as);
+                        p.setAlpha(90); p.setFilterBitmap(true); c.drawBitmap(a, new Rect(0, 0, a.getWidth(), a.getHeight()), tmp, p); p.setAlpha(255); c.restore();
+                        p.setShader(lg(0, ay + as, 0, ay + as + refl + d(3), 0x22000000, 0xFF000000)); c.drawRect(ax - d(1), ay + as, ax + as + d(1), ay + as + refl + d(3), p); p.setShader(null);
                     }
                 } else { fill(0xFF141A24); c.drawRect(tmp, p); }
-                float ty = ay + as + d(44);
+                float ty = ay + as + refl + d(30);
                 tx(c, np == null ? "Windows Media Player" : np.title, W / 2, ty, d(19), WHITE, bold, Paint.Align.CENTER, W - 2 * m);
                 tx(c, np == null ? "Pick something from the Library" : np.artist + "  —  " + np.album, W / 2, ty + d(24), d(13.5f), 0xFFAAB6C8, reg, Paint.Align.CENTER, W - 2 * m);
                 float vb = bot - d(14), vh = Math.max(d(30), bot - ty - d(60)), gw = (W - 2 * m) / lv.length;
@@ -3786,9 +3787,8 @@ public class MainActivity extends Activity implements Player.Listener {
                 p.setShader(lg(0, vol.top, 0, vol.bottom, 0xFF8CC8FF, 0xFF2266CC)); c.drawRoundRect(vol.left, vol.top, vol.left + vol.width() * pl.vol, vol.bottom, d(3), d(3), p); p.setShader(null);
                 fill(0xFFDDE4EE); c.drawCircle(vol.left + vol.width() * pl.vol, cy, d(6), p);
             } else vol.setEmpty();
-            tmp.set(W - m - d(40), y0 + d(20), W - m, y0 + d(44));
-            tmp.set(m + d(78), cy - d(16), m + d(110), cy + d(16)); btn(B_MENU, tmp);
-            fill(down(B_MENU) ? 0xFF56AEFF : 0xFF9AA4B2); for (int i = -1; i <= 1; i++) c.drawRect(tmp.centerX() - d(7), cy + i * d(5) - d(1), tmp.centerX() + d(7), cy + i * d(5) + d(1), p);
+            tmp.set(W - d(40), d(6), W - d(4), tbh - d(6)); btn(B_MENU, tmp);   // menu: top-right of the toolbar
+            fill(down(B_MENU) ? 0xFF56AEFF : 0xFFB8BEC8); float mcy = tmp.centerY(); for (int i = -1; i <= 1; i++) c.drawRect(tmp.centerX() - d(8), mcy + i * d(5) - d(1), tmp.centerX() + d(8), mcy + i * d(5) + d(1), p);
         }
     }
 
@@ -3915,16 +3915,16 @@ public class MainActivity extends Activity implements Player.Listener {
             RectF up = new RectF(body.right - d(92), ky0, body.right - d(28), ky0 + kh * .5f - d(2)); btn(B_UP, up);
             RectF dn0 = new RectF(body.right - d(92), ky0 + kh * .5f + d(2), body.right - d(28), ky0 + kh); btn(B_DOWN, dn0);
             plastic(c, up, d(14), down(B_UP), 0xFF8EA6CF, 0xFF4E6A9E); plastic(c, dn0, d(14), down(B_DOWN), 0xFF8EA6CF, 0xFF4E6A9E);
-            fill(WHITE); tri(c, p, up.centerX(), up.centerY(), d(10), 1); c.save(); c.rotate(-90, up.centerX(), up.centerY()); tri(c, p, up.centerX(), up.centerY(), d(10), 1); c.restore();
+            fill(WHITE); c.save(); c.rotate(-90, up.centerX(), up.centerY()); tri(c, p, up.centerX(), up.centerY(), d(10), 1); c.restore();
             c.save(); c.rotate(90, dn0.centerX(), dn0.centerY()); tri(c, p, dn0.centerX(), dn0.centerY(), d(10), 1); c.restore();
             fill(0xFF8EA6CF); // keypad
             float gy = navi.bottom + d(14), gw = (body.width() - d(56)) / 3, gh = Math.min(kh, (body.bottom - d(24) - gy) / 4);
             for (int i = 0; i < 12; i++) {
                 int r = i / 3, col = i % 3;
                 RectF k = new RectF(body.left + d(28) + col * gw + d(5), gy + r * gh + d(4), body.left + d(28) + (col + 1) * gw - d(5), gy + (r + 1) * gh - d(4));
-                btn(B_KEY + i, k); plastic(c, k, k.height() * .45f, down(B_KEY + i), 0xFFC9D2E0, 0xFF7E8AA0);
-                tx(c, KD[i], k.left + k.width() * .3f, k.centerY() + d(7), d(20), 0xFF1F2A40, reg, Paint.Align.CENTER, 0);
-                tx(c, KF[i], k.left + k.width() * .64f, k.centerY() + d(4.5f), d(11), 0xFF2E4A7E, reg, Paint.Align.CENTER, k.width() * .5f);
+                btn(B_KEY + i, k); plastic(c, k, k.height() * .45f, down(B_KEY + i), 0xFFE6EBF2, 0xFFA9B4C6);
+                tx(c, KD[i], k.left + k.width() * .28f, k.centerY() + d(7), d(21), 0xFF0E1626, reg, Paint.Align.CENTER, 0);
+                tx(c, KF[i], k.left + k.width() * .64f, k.centerY() + d(5), d(12), 0xFF0D2A66, reg, Paint.Align.CENTER, k.width() * .52f);
             }
         }
     }

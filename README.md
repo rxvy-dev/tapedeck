@@ -22,6 +22,15 @@ Free, open source, no ads, no accounts, no internet needed.</p>
   <img src="screenshots/notification.png" width="24%" alt="Lock screen and notification controls">
 </p>
 
+<p align="center"><b>New in 1.4: Zune, Walkman, PSP, Windows Media Player 11 and Nokia</b></p>
+<p align="center">
+  <img src="screenshots/zune.png" width="19%" alt="Zune theme">
+  <img src="screenshots/walkman.png" width="19%" alt="Walkman theme">
+  <img src="screenshots/psp.png" width="19%" alt="PSP theme">
+  <img src="screenshots/wmp-now.png" width="19%" alt="Windows Media Player 11 theme">
+  <img src="screenshots/nokia.png" width="19%" alt="Nokia theme">
+</p>
+
 <p align="center"><b>Menus match the theme you're in</b></p>
 <p align="center">
   <img src="screenshots/menu-xp.png" width="24%" alt="Windows XP style menu">
@@ -40,7 +49,7 @@ Free, open source, no ads, no accounts, no internet needed.</p>
 
 ## Features
 
-- **8 hand-drawn themes**: iPod Classic (working click wheel), Windows XP, Windows 95, Game Boy, Winamp, Cassette, iTunes 2011, and one secret.
+- **13 hand-drawn themes**: iPod Classic (working click wheel), Windows XP, Windows 95, Game Boy, Winamp, Cassette, iTunes 2011, Zune, Walkman (the reels really spin and the tape moves between spools), PSP (with the waves), Windows Media Player 11, Nokia (working keypad: 2/8 to scroll, 5 to play), and one secret.
 - **Every menu matches the theme**: XP windows in XP, an iPhone OS action sheet in iTunes, Undertale boxes in the secret theme, and so on.
 - **Playlists**: make, rename, reorder and delete them; save the queue as a playlist. Stored on your phone.
 - **Wrapped**: your top songs, top artists, minutes listened, listening clock, streaks and your listening personality, as tap-through story slides. Stats are counted on your phone only.
@@ -125,4 +134,4 @@ tools/                  demo-song generator + screenshot robot
 - **Press Start 2P** by CodeMan38, SIL Open Font License (`assets/OFL-PressStart2P.txt`).
 - **Monster Friend Fore/Back** logo fonts (`assets/LICENSE-MonsterFriend.txt`).
 
-Tape Deck is a fan-made homage. It isn't affiliated with or endorsed by Apple, Microsoft, Nintendo, Nullsoft/Winamp or Toby Fox. All product names belong to their owners. No copyrighted game assets are included: every sprite is drawn in code.
+Tape Deck is a fan-made homage. It isn't affiliated with or endorsed by Apple, Microsoft, Sony, Nokia, Nintendo, Nullsoft/Winamp or Toby Fox. All product names belong to their owners. No copyrighted game assets are included: every sprite is drawn in code.
