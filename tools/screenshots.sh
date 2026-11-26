@@ -69,6 +69,25 @@ shot wrapped-song  5 --ez td_seed true --ei td_wrapped 2
 shot wrapped-top   5 --ei td_wrapped 3
 shot wrapped-card  5 --ei td_wrapped 7
 
+# home-screen widget: ask the launcher to pin it, tap its "Add" button, then look at the home screen
+shot widget-pin 4 --ei td_skin 6 --ei td_play 3 --ef td_seek 0.3 --ez td_pin true
+adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb shell cat /sdcard/ui.xml > ui.xml
+python3 - <<'PY' > tap.txt || true
+import re
+x = open('ui.xml', encoding='utf-8', errors='ignore').read()
+for n in re.finditer(r'<node [^>]*>', x):
+    t = n.group(0)
+    m = re.search(r'text="([^"]*)"', t); b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', t)
+    if m and b and re.fullmatch(r'(?i)(add|add to home screen|add automatically)', m.group(1).strip()):
+        x1, y1, x2, y2 = map(int, b.groups()); print((x1 + x2) // 2, (y1 + y2) // 2); break
+PY
+cat tap.txt; grep -o 'text="[^"]*"' ui.xml | sort -u | head -25 || true
+if [ -s tap.txt ]; then adb shell input tap $(cat tap.txt); sleep 2; fi
+adb shell input keyevent KEYCODE_HOME
+sleep 4
+adb exec-out screencap -p > "$OUT/widget.png"
+rm -f "$OUT/widget-pin.png"
+
 # the media notification
 adb shell am broadcast -a com.android.systemui.demo -e command notifications -e visible true
 adb shell cmd statusbar expand-notifications

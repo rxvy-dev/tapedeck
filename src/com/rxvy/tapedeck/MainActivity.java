@@ -172,6 +172,10 @@ public class MainActivity extends Activity implements Player.Listener {
             setSkin(want);
         }
         if (it.getBooleanExtra("td_seed", false) && !all.isEmpty()) seedDemoStats();
+        if (it.getBooleanExtra("td_pin", false) && Build.VERSION.SDK_INT >= 26) try {
+            android.appwidget.AppWidgetManager am = getSystemService(android.appwidget.AppWidgetManager.class);
+            if (am != null && am.isRequestPinAppWidgetSupported()) am.requestPinAppWidget(new ComponentName(this, TapeWidget.class), null, null);
+        } catch (Throwable e) { }
         final int tdMenu = it.getIntExtra("td_menu", 0), tdTab = it.getIntExtra("td_tab", -1), tdSlide = it.getIntExtra("td_wrapped", -1);
         if (tdTab >= 0 && view instanceof ITunes) { ((ITunes) view).tab = tdTab; view.invalidate(); }
         if (tdMenu > 0 || tdSlide >= 0) h.postDelayed(new Runnable() { public void run() {
@@ -526,7 +530,7 @@ public class MainActivity extends Activity implements Player.Listener {
         menu("Equalizer", items, acts).check(pl.eqPreset + 1).show();
     }
 
-    String speedName() { return (pl.speed == (int) pl.speed ? String.format(Locale.US, "%.1f", pl.speed) : String.format(Locale.US, "%.2f", pl.speed)).replaceAll("0$", "") + "x"; }
+    String speedName() { String v = String.format(Locale.US, "%.2f", pl.speed).replaceAll("0+$", "").replaceAll("\\.$", ""); return v + "x"; }
 
     void speedMenu() {
         if (Build.VERSION.SDK_INT < 23) { toast("Needs Android 6 or newer"); return; }
@@ -829,6 +833,7 @@ public class MainActivity extends Activity implements Player.Listener {
             boolean pr = pressed == i && !moved, ck = checked == i, ut = ut(), gb = st.kind == 3;
             int col = i == danger ? st.danger : st.fg;
             float l = list.left, r = list.right;
+            p.setAlpha(255);
             if (pr && !ut) {
                 if (st.sel != st.sel2) p.setShader(lg(0, ry, 0, ry + rowH, st.sel, st.sel2)); else p.setColor(st.sel);
                 c.drawRect(l, ry, r, ry + rowH, p); p.setShader(null); col = st.selFg;
@@ -858,7 +863,7 @@ public class MainActivity extends Activity implements Player.Listener {
             float lh = Math.min(listH, Math.max(stride * 2, H * .82f - hh - cancelH - pad * 2));
             float sh = pad + hh + lh + cancelH + pad * .6f, top = H - sh + (1 - a) * sh;
             panel.set(0, top, W, H + d(2));
-            p.setShader(new LinearGradient(0, top, 0, H, new int[]{0xEE46546A, 0xF2283241, 0xF7141920}, null, Shader.TileMode.CLAMP)); c.drawRect(panel, p); p.setShader(null);
+            p.setShader(new LinearGradient(0, top, 0, H, new int[]{0xF846546A, 0xFA283241, 0xFC141920}, null, Shader.TileMode.CLAMP)); c.drawRect(panel, p); p.setShader(null);
             p.setColor(0x88FFFFFF); c.drawRect(0, top, W, top + d(1), p); p.setColor(0xFF0B0F15); c.drawRect(0, top - d(1), W, top, p);
             if (hl != null) { c.save(); c.translate(m, top + pad); hl.draw(c); c.restore(); }
             list.set(0, top + pad + hh, W, top + pad + hh + lh);
@@ -1175,9 +1180,10 @@ public class MainActivity extends Activity implements Player.Listener {
             postInvalidateOnAnimation();
             if (pausedAt == 0 && t - slideAt > AUTO && slide < count() - 1) go(1);
             int[] pal = PAL[slide % PAL.length]; float sh = (float) Math.sin(t / 2400.0) * .5f + .5f;
+            p.setColor(BLACK); p.setAlpha(255); p.setStyle(Paint.Style.FILL);   // text alpha must not leak into the background
             p.setShader(new LinearGradient(0, 0, W * (.3f + .7f * sh), H, pal[0], pal[1], Shader.TileMode.CLAMP)); c.drawRect(0, 0, W, H, p); p.setShader(null);
             // soft blobs
-            p.setColor(0x22FFFFFF); c.drawCircle(W * (.15f + .2f * sh), H * .2f, W * .45f, p); p.setColor(0x18000000); c.drawCircle(W * .9f, H * (.75f + .1f * sh), W * .55f, p);
+            p.setShader(null); p.setColor(0x22FFFFFF); c.drawCircle(W * (.15f + .2f * sh), H * .2f, W * .45f, p); p.setColor(0x18000000); c.drawCircle(W * .9f, H * (.75f + .1f * sh), W * .55f, p);
             // story progress bars + close
             float bw = (W - d(24) - (count() - 1) * d(4)) / count();
             for (int i = 0; i < count(); i++) {
