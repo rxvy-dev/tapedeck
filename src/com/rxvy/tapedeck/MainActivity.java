@@ -153,14 +153,16 @@ public class MainActivity extends Activity implements Player.Listener {
             .setOnDismissListener(new DialogInterface.OnDismissListener() { public void onDismiss(DialogInterface dl) { announcing = false; } }).show();
     }
 
-    // For the screenshot robot (CI): am start ... --es td_theme "Windows XP" --ei td_play 3 --ef td_seek .4 --ez td_fight true
+    // For the screenshot robot (CI): am start ... --ei td_skin 1 --ei td_play 3 --ef td_seek .4 --ez td_fight true
     int demoPlay = -1; float demoSeek = .35f; boolean demoFight;
     void handleExtras(Intent it) {
         if (it == null) return;
+        int want = it.getIntExtra("td_skin", -1);
         String th = it.getStringExtra("td_theme");
-        if (th != null) for (int i = 0; i < TN.length; i++) if (TN[i].equalsIgnoreCase(th)) {
-            if (i == SECRET) prefs().edit().putBoolean("secret", true).putBoolean("secretNew", false).apply();
-            setSkin(i);
+        if (th != null) for (int i = 0; i < TN.length; i++) if (TN[i].equalsIgnoreCase(th)) want = i;
+        if (want >= 0 && want < TN.length) {
+            if (want == SECRET) prefs().edit().putBoolean("secret", true).putBoolean("secretNew", false).apply();
+            setSkin(want);
         }
         if (it.hasExtra("td_play")) { demoPlay = it.getIntExtra("td_play", 0); demoSeek = it.getFloatExtra("td_seek", .35f); demoFight = it.getBooleanExtra("td_fight", false); }
         if (demoPlay >= 0 && !all.isEmpty()) runDemo();
