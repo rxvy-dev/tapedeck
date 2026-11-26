@@ -59,6 +59,16 @@ shot cassette   5 --ei td_skin 5 --ei td_play 6 --ef td_seek 0.61
 shot undertale  6 --ei td_skin 7 --ei td_play 7 --ef td_seek 0.20
 shot fight     14 --ei td_skin 7 --ei td_play 9 --ef td_seek 0.15 --ez td_fight true
 
+# 1.3: themed menus, playlists, Wrapped (td_seed fills in demo listening stats + two playlists)
+shot menu-xp       5 --ei td_skin 1 --ei td_menu 1
+shot menu-itunes   5 --ei td_skin 6 --ei td_menu 2
+shot menu-ut       5 --ei td_skin 7 --ei td_menu 3
+shot menu-ipod     5 --ei td_skin 0 --ei td_menu 1
+shot playlists     5 --ei td_skin 6 --ez td_seed true --ei td_tab 3
+shot wrapped-song  5 --ez td_seed true --ei td_wrapped 2
+shot wrapped-top   5 --ei td_wrapped 3
+shot wrapped-card  5 --ei td_wrapped 7
+
 # the media notification
 adb shell am broadcast -a com.android.systemui.demo -e command notifications -e visible true
 adb shell cmd statusbar expand-notifications

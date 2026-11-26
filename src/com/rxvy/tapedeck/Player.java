@@ -6,6 +6,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.AudioAttributes;
@@ -25,6 +27,7 @@ import android.provider.MediaStore;
 import android.util.Size;
 import android.widget.Toast;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -43,7 +46,7 @@ public final class Player {
     final Context ctx;
     final Handler h = new Handler(Looper.getMainLooper());
     final AudioManager am;
-    final SharedPreferences prefs, counts;
+    final SharedPreferences prefs, counts, stats;
     final ArrayList<Listener> ls = new ArrayList<>();
 
     public ArrayList<Song> queue = new ArrayList<>();
@@ -67,6 +70,7 @@ public final class Player {
         am = (AudioManager) c.getSystemService(Context.AUDIO_SERVICE);
         prefs = c.getSharedPreferences("MainActivity", 0);   // same file the activity always used
         counts = c.getSharedPreferences("playcounts", 0);
+        stats = c.getSharedPreferences("stats", 0);
         shuffle = prefs.getBoolean("shuffle", false);
         repeat = prefs.getInt("repeat", 0);
         vol = prefs.getFloat("vol", 1f);
@@ -78,7 +82,34 @@ public final class Player {
 
     public void listen(Listener l) { if (!ls.contains(l)) ls.add(l); }
     public void unlisten(Listener l) { ls.remove(l); }
-    void fire() { for (Listener l : new ArrayList<>(ls)) try { l.changed(); } catch (Throwable e) { } }
+    void fire() {
+        syncListen();
+        for (Listener l : new ArrayList<>(ls)) try { l.changed(); } catch (Throwable e) { }
+        try { TapeWidget.update(ctx, false); } catch (Throwable e) { }
+    }
+
+    // ---------- listening stats (for Wrapped): time per song, per hour of day, per day ----------
+    long listenAt; Song listenSong;
+
+    /** Credits the time since the last call to the song that was playing, then starts timing the current one. */
+    void syncListen() {
+        long t = SystemClock.elapsedRealtime();
+        if (listenAt > 0 && listenSong != null) {
+            long dt = t - listenAt;
+            if (dt > 0 && dt < 6 * 3600000L) {
+                Calendar c = Calendar.getInstance();
+                String day = String.format(Locale.US, "%04d%02d%02d", c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
+                String ks = "ms_" + listenSong.id, kh = "h_" + c.get(Calendar.HOUR_OF_DAY), kd = "d_" + day;
+                SharedPreferences.Editor e = stats.edit();
+                e.putLong(ks, stats.getLong(ks, 0) + dt).putLong(kh, stats.getLong(kh, 0) + dt).putLong(kd, stats.getLong(kd, 0) + dt)
+                 .putLong("total", stats.getLong("total", 0) + dt);
+                if (!stats.contains("since")) e.putLong("since", System.currentTimeMillis());
+                e.apply();
+            }
+        }
+        boolean on = playing();
+        listenAt = on ? t : 0; listenSong = on ? now() : null;
+    }
 
     // ---------- state ----------
     public Song now() { return cur >= 0 && cur < queue.size() ? queue.get(cur) : null; }
@@ -356,7 +387,7 @@ public final class Player {
             .putString("q", b.toString()).putInt("qcur", cur - from).putInt("qpos", pos() > 0 ? pos() : prefs.getInt("qpos", 0)).apply();
     }
 
-    final Runnable autosave = new Runnable() { public void run() { if (playing()) save(); h.postDelayed(this, 10000); } };
+    final Runnable autosave = new Runnable() { public void run() { if (playing()) { save(); syncListen(); } h.postDelayed(this, 10000); } };
     boolean autosaving;
 
     /** After the library loads: put back the last queue + song, paused at the same spot. */
@@ -375,6 +406,37 @@ public final class Player {
         int at = prefs.getInt("qpos", 0);
         start(false);
         if (at > 0) seek(at);
+    }
+
+    // ---------- the music library (MediaStore) ----------
+    static String clean(String s, String d) { return (s == null || s.isEmpty() || s.equals("<unknown>")) ? d : s; }
+
+    static boolean canRead(Context c) {
+        String p = Build.VERSION.SDK_INT >= 33 ? "android.permission.READ_MEDIA_AUDIO" : "android.permission.READ_EXTERNAL_STORAGE";
+        return Build.VERSION.SDK_INT < 23 || c.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    static ArrayList<Song> query(Context ctx) throws Exception {
+        ArrayList<Song> all = new ArrayList<>();
+        String[] cols = {MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.DATE_ADDED, MediaStore.Audio.Media.DISPLAY_NAME, MediaStore.Audio.Media.TRACK};
+        Cursor c = null;
+        try {
+            c = ctx.getContentResolver().query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, cols, MediaStore.Audio.Media.IS_MUSIC + "!=0", null, MediaStore.Audio.Media.TITLE + " COLLATE NOCASE");
+            while (c != null && c.moveToNext()) {
+                Song s = new Song(); s.id = c.getLong(0);
+                s.title = clean(c.getString(1), "Untitled"); s.artist = clean(c.getString(2), "Unknown Artist");
+                s.album = clean(c.getString(3), "Unknown Album"); s.dur = c.getInt(4); s.albumId = c.getLong(5);
+                s.added = c.getLong(6); s.file = c.getString(7); s.track = c.getInt(8) % 1000; all.add(s);
+            }
+        } finally { if (c != null) c.close(); }
+        return all;
+    }
+
+    /** With the app closed (widget / headset button): bring back the last queue so there's something to play. */
+    public void restoreCold() {
+        if (now() != null || !canRead(ctx)) return;
+        try { restore(query(ctx)); } catch (Throwable e) { }
     }
 
     // ---------- album art (shared by the UI and the notification) ----------

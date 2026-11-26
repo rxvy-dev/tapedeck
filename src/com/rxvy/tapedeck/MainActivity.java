@@ -2,11 +2,11 @@ package com.rxvy.tapedeck;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.*;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.*;
+import android.graphics.drawable.GradientDrawable;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
@@ -15,13 +15,18 @@ import android.os.*;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.text.InputType;
+import android.text.Layout;
+import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.util.LruCache;
+import android.util.TypedValue;
 import android.view.*;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.io.*;
@@ -31,6 +36,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class MainActivity extends Activity implements Player.Listener {
     interface StrCb { void got(String s); }
@@ -50,7 +57,7 @@ public class MainActivity extends Activity implements Player.Listener {
     static final String REPO = "https://github.com/rxvy-dev/tapedeck";
 
     // Song filter shared by every theme
-    static final int F_ALL = 0, F_ARTIST = 1, F_ALBUM = 2, F_SEARCH = 3, F_FAV = 4, F_RECENT = 5, F_TOP = 6;
+    static final int F_ALL = 0, F_ARTIST = 1, F_ALBUM = 2, F_SEARCH = 3, F_FAV = 4, F_RECENT = 5, F_TOP = 6, F_PLAYLIST = 7;
     int fk; String fv;
     final HashSet<Long> favs = new HashSet<>();
     int libVer;
@@ -63,7 +70,9 @@ public class MainActivity extends Activity implements Player.Listener {
         super.onCreate(b);
         pl = Player.get(this);
         for (String s : prefs().getStringSet("favs", new HashSet<String>())) try { favs.add(Long.parseLong(s)); } catch (NumberFormatException e) { }
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         loadUtFont();
+        loadPlaylists();
         setSkin(savedSkin());
         askPermissions();
         handleExtras(getIntent());
@@ -103,10 +112,9 @@ public class MainActivity extends Activity implements Player.Listener {
         for (int i = 0; i < p.length; i++) {
             if (!p[i].equals(audioPerm())) continue;
             if (r[i] == PackageManager.PERMISSION_GRANTED) loadSongs();
-            else new AlertDialog.Builder(this).setTitle("Music access needed").setMessage("Tape Deck plays the music files on your phone, so it needs permission to read them.")
-                .setPositiveButton("Open Settings", new DialogInterface.OnClickListener() { public void onClick(DialogInterface dl, int w) {
+            else menu("Music access needed", new String[]{"Open Settings", "Not now"}, new Runnable[]{ new Runnable() { public void run() {
                     try { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); } catch (Exception e) { }
-                }}).setNegativeButton("Not now", null).show();
+                }}, null }).msg("Tape Deck plays the music files on your phone, so it needs permission to read them. Nothing ever leaves your phone.").show();
         }
     }
 
@@ -125,7 +133,8 @@ public class MainActivity extends Activity implements Player.Listener {
         View v;
         if (s == 0) v = new IPod(this); else if (s == 1) v = new Xp(this); else if (s == ITUNES) v = new ITunes(this);
         else if (s == SECRET) v = new Ut(this); else v = new Retro(this, s);
-        view = v; setContentView(v);
+        closeAll();
+        view = v; root = new FrameLayout(this); root.addView(v); setContentView(root);
         int bar = s == 0 ? 0xFFEDEDF0 : s == 1 ? 0xFF0B4FC8 : (s == SECRET || s == ITUNES) ? BLACK : RP[s - 2][0];
         int nav = s == 0 ? 0xFFEDEDF0 : s == 1 ? 0xFF1941A5 : bar;
         getWindow().setStatusBarColor(bar); getWindow().setNavigationBarColor(nav);
@@ -136,9 +145,9 @@ public class MainActivity extends Activity implements Player.Listener {
 
     void pickTheme() {
         int n = prefs().getBoolean("secret", false) ? TN.length : TN.length - 1;
-        new AlertDialog.Builder(this).setTitle("Theme").setItems(Arrays.copyOf(TN, n), new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dl, int i) { setSkin(i); }
-        }).show();
+        Runnable[] acts = new Runnable[n];
+        for (int i = 0; i < n; i++) { final int k = i; acts[i] = new Runnable() { public void run() { setSkin(k); } }; }
+        menu("Theme", Arrays.copyOf(TN, n), acts).check(skin).show();
     }
 
     boolean announcing;
@@ -146,11 +155,9 @@ public class MainActivity extends Activity implements Player.Listener {
         if (announcing || !prefs().getBoolean("secretNew", false) || isFinishing()) return;
         announcing = true; prefs().edit().putBoolean("secretNew", false).apply();
         if (skin == SECRET) { announcing = false; return; }
-        new AlertDialog.Builder(this).setTitle("* You are filled with DETERMINATION.")
-            .setMessage("Music from the Underground echoes through the tape deck...\n\nA secret theme was unlocked. It has a FIGHT mode where the song attacks you to the beat.")
-            .setPositiveButton("* FIGHT", new DialogInterface.OnClickListener() { public void onClick(DialogInterface dl, int w) { setSkin(SECRET); } })
-            .setNegativeButton("Later", null)
-            .setOnDismissListener(new DialogInterface.OnDismissListener() { public void onDismiss(DialogInterface dl) { announcing = false; } }).show();
+        announcing = false;
+        menu("You are filled with DETERMINATION.", new String[]{"* Take me there", "Later"}, new Runnable[]{ new Runnable() { public void run() { setSkin(SECRET); } }, null })
+            .msg("Music from the Underground echoes through the tape deck... A secret theme was unlocked. It has a FIGHT mode where the song attacks you to the beat.").show();
     }
 
     // For the screenshot robot (CI): am start ... --ei td_skin 1 --ei td_play 3 --ef td_seek .4 --ez td_fight true
@@ -164,6 +171,13 @@ public class MainActivity extends Activity implements Player.Listener {
             if (want == SECRET) prefs().edit().putBoolean("secret", true).putBoolean("secretNew", false).apply();
             setSkin(want);
         }
+        if (it.getBooleanExtra("td_seed", false) && !all.isEmpty()) seedDemoStats();
+        final int tdMenu = it.getIntExtra("td_menu", 0), tdTab = it.getIntExtra("td_tab", -1), tdSlide = it.getIntExtra("td_wrapped", -1);
+        if (tdTab >= 0 && view instanceof ITunes) { ((ITunes) view).tab = tdTab; view.invalidate(); }
+        if (tdMenu > 0 || tdSlide >= 0) h.postDelayed(new Runnable() { public void run() {
+            if (tdSlide >= 0) openWrapped(tdSlide);
+            else if (tdMenu == 1) mainMenu(); else if (tdMenu == 2 && !all.isEmpty()) songMenu(all, 0, null); else if (tdMenu == 3) pickDifficulty(null);
+        }}, 1200);
         if (it.hasExtra("td_play")) { demoPlay = it.getIntExtra("td_play", 0); demoSeek = it.getFloatExtra("td_seek", .35f); demoFight = it.getBooleanExtra("td_fight", false); }
         if (demoPlay >= 0 && !all.isEmpty()) runDemo();
     }
@@ -173,7 +187,7 @@ public class MainActivity extends Activity implements Player.Listener {
         pl.playList(all, i);
         h.postDelayed(new Runnable() { public void run() {
             pl.seek((int) (pl.dur() * demoSeek));
-            if (demoFight && view instanceof Ut) { ((Ut) view).startFight(); if (((Ut) view).fight != null) ((Ut) view).fight.demo = true; }
+            if (demoFight && view instanceof Ut) { ((Ut) view).startFightNow(); if (((Ut) view).fight != null) ((Ut) view).fight.demo = true; }
         }}, 400);
     }
 
@@ -325,7 +339,7 @@ public class MainActivity extends Activity implements Player.Listener {
 
     ArrayList<Song> filtered() {
         ArrayList<Song> l = filter(fk, fv);
-        if (l.isEmpty() && (fk == F_ARTIST || fk == F_ALBUM) && !all.isEmpty()) { fk = F_ALL; fv = null; l = filter(fk, fv); }   // artist/album deleted
+        if ((l.isEmpty() && (fk == F_ARTIST || fk == F_ALBUM) && !all.isEmpty()) || (fk == F_PLAYLIST && plKey(fv) == null)) { fk = F_ALL; fv = null; l = filter(fk, fv); }   // artist/album/playlist gone
         return l;
     }
 
@@ -339,6 +353,9 @@ public class MainActivity extends Activity implements Player.Listener {
             l.addAll(all);
             Collections.sort(l, new Comparator<Song>() { public int compare(Song a, Song b) { return Long.compare(b.added, a.added); } });
             while (l.size() > 100) l.remove(l.size() - 1);
+        } else if (k == F_PLAYLIST) {
+            ArrayList<Long> ids = playlists.get(plKey(v)); HashMap<Long, Song> m = byId();
+            if (ids != null) for (Long id : ids) { Song s = m.get(id); if (s != null) l.add(s); }
         } else if (k == F_TOP) {
             for (Song s : all) if (pl.plays(s) > 0) l.add(s);
             Collections.sort(l, new Comparator<Song>() { public int compare(Song a, Song b) { return pl.plays(b) - pl.plays(a); } });
@@ -358,14 +375,14 @@ public class MainActivity extends Activity implements Player.Listener {
 
     static String label(int k, String v) {
         switch (k) {
-            case F_ARTIST: return v; case F_ALBUM: return v; case F_SEARCH: return "\"" + v + "\"";
+            case F_ARTIST: return v; case F_ALBUM: return v; case F_PLAYLIST: return v; case F_SEARCH: return "\"" + v + "\"";
             case F_FAV: return "Favorites"; case F_RECENT: return "Recently Added"; case F_TOP: return "Most Played";
             default: return "All Songs";
         }
     }
 
     String filterLabel() {
-        String pre = fk == F_ARTIST ? "Artist: " : fk == F_ALBUM ? "Album: " : fk == F_SEARCH ? "Search: " : "";
+        String pre = fk == F_ARTIST ? "Artist: " : fk == F_ALBUM ? "Album: " : fk == F_SEARCH ? "Search: " : fk == F_PLAYLIST ? "Playlist: " : "";
         return pre + label(fk, fv);
     }
 
@@ -377,38 +394,28 @@ public class MainActivity extends Activity implements Player.Listener {
     }
 
     void pickFilter() {
-        pick(new String[]{"All Songs", "Search...", "Artists...", "Albums...", "Favorites (" + favs.size() + ")", "Recently Added", "Most Played"}, new Runnable[]{
+        int cur = fk == F_ALL ? 0 : fk == F_SEARCH ? 1 : fk == F_ARTIST ? 2 : fk == F_ALBUM ? 3 : fk == F_PLAYLIST ? 4 : fk == F_FAV ? 5 : fk == F_RECENT ? 6 : 7;
+        menu("Browse", new String[]{"All Songs", "Search...", "Artists...", "Albums...", "Playlists...", "Favorites (" + favs.size() + ")", "Recently Added", "Most Played"}, new Runnable[]{
             new Runnable() { public void run() { setFilter(F_ALL, null); } },
             new Runnable() { public void run() { search(); } },
-            new Runnable() { public void run() { pickName("Artist", artistNames(), F_ARTIST); } },
-            new Runnable() { public void run() { pickName("Album", albumNames(), F_ALBUM); } },
+            new Runnable() { public void run() { pickName("Artists", artistNames(), F_ARTIST); } },
+            new Runnable() { public void run() { pickName("Albums", albumNames(), F_ALBUM); } },
+            new Runnable() { public void run() { pickPlaylist(); } },
             new Runnable() { public void run() { setFilter(F_FAV, null); } },
             new Runnable() { public void run() { setFilter(F_RECENT, null); } },
-            new Runnable() { public void run() { setFilter(F_TOP, null); } } });
+            new Runnable() { public void run() { setFilter(F_TOP, null); } } }).check(cur).show();
     }
 
     void pickName(String title, ArrayList<String> names, final int k) {
         if (names.isEmpty()) { toast("No music found"); return; }
-        final String[] items = names.toArray(new String[0]);
-        new AlertDialog.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dl, int i) { setFilter(k, items[i]); }
-        }).show();
+        final String[] items = names.toArray(new String[0]); Runnable[] acts = new Runnable[items.length]; int ck = -1;
+        for (int i = 0; i < items.length; i++) { final String n = items[i]; acts[i] = new Runnable() { public void run() { setFilter(k, n); } }; if (fk == k && n.equalsIgnoreCase(fv)) ck = i; }
+        menu(title, items, acts).check(ck).show();
     }
 
-    void search() { askText("Search", "Song, artist or album", new StrCb() { public void got(String s) { if (!s.trim().isEmpty()) setFilter(F_SEARCH, s.trim()); } }); }
+    void search() { askText("Search", "Song, artist or album", null, new StrCb() { public void got(String s) { if (!s.trim().isEmpty()) setFilter(F_SEARCH, s.trim()); } }); }
 
-    void askText(String title, String hint, final StrCb cb) {
-        final EditText e = new EditText(this); e.setSingleLine(); e.setHint(hint); e.setInputType(InputType.TYPE_CLASS_TEXT); e.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        FrameLayout box = new FrameLayout(this); int pd = (int) d(20); box.setPadding(pd, (int) d(8), pd, 0); box.addView(e);
-        final AlertDialog dl = new AlertDialog.Builder(this).setTitle(title).setView(box)
-            .setPositiveButton("OK", new DialogInterface.OnClickListener() { public void onClick(DialogInterface d0, int w) { cb.got(e.getText().toString()); } })
-            .setNegativeButton("Cancel", null).create();
-        e.setOnEditorActionListener(new TextView.OnEditorActionListener() { public boolean onEditorAction(TextView v, int a, KeyEvent ev) {
-            dl.dismiss(); cb.got(e.getText().toString()); return true;
-        }});
-        dl.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
-        dl.show(); e.requestFocus();
-    }
+
 
     // ---------- favorites ----------
     boolean fav(Song s) { return s != null && favs.contains(s.id); }
@@ -451,18 +458,33 @@ public class MainActivity extends Activity implements Player.Listener {
         ArrayList<String> items = new ArrayList<>(); final ArrayList<Runnable> acts = new ArrayList<>();
         items.add("Theme: " + TN[skin]); acts.add(new Runnable() { public void run() { pickTheme(); } });
         items.add("Browse / Search..."); acts.add(new Runnable() { public void run() { pickFilter(); } });
+        items.add("Playlists..."); acts.add(new Runnable() { public void run() { pickPlaylist(); } });
+        items.add("Your Wrapped \u2728"); acts.add(new Runnable() { public void run() { openWrapped(0); } });
         items.add("Up Next..."); acts.add(new Runnable() { public void run() { upNext(); } });
         items.add("Shuffle: " + (pl.shuffle ? "On" : "Off")); acts.add(new Runnable() { public void run() { pl.setShuffle(!pl.shuffle); } });
         items.add("Repeat: " + repeatName()); acts.add(new Runnable() { public void run() { pl.cycleRepeat(); } });
         items.add("Sleep Timer: " + pl.sleepLabel()); acts.add(new Runnable() { public void run() { sleepMenu(); } });
         items.add("Equalizer: " + eqName()); acts.add(new Runnable() { public void run() { eqMenu(); } });
         items.add("Speed: " + speedName()); acts.add(new Runnable() { public void run() { speedMenu(); } });
+        if (!pl.queue.isEmpty()) { items.add("Save Queue as Playlist..."); acts.add(new Runnable() { public void run() { saveQueueAsPlaylist(); } }); }
+        if (ut) { items.add("Fight Difficulty: " + DIFF[diff()]); acts.add(new Runnable() { public void run() { pickDifficulty(null); } }); }
         if (ut) { items.add("Font: " + utName); acts.add(new Runnable() { public void run() { fontMenu(); } }); }
         items.add("Refresh Library"); acts.add(new Runnable() { public void run() { loadSongs(); toast(all.size() + " songs"); } });
         items.add("About Tape Deck"); acts.add(new Runnable() { public void run() { about(); } });
         items.add("Exit (stop music)"); acts.add(new Runnable() { public void run() { exitApp(); } });
-        pick(items.toArray(new String[0]), acts.toArray(new Runnable[0]));
+        menu("Menu", items.toArray(new String[0]), acts.toArray(new Runnable[0])).danger(items.size() - 1).show();
     }
+
+    // ---------- fight difficulty ----------
+    static final String[] DIFF = {"Easy", "Normal", "Hard"};
+    int diff() { return Math.max(0, Math.min(2, prefs().getInt("fightDiff", 0))); }
+
+    void pickDifficulty(final Runnable then) {
+        menu("Choose your difficulty.", new String[]{"EASY - slow bullets, lots of HP", "NORMAL - a fair fight", "HARD - true determination"}, new Runnable[]{
+            df(0, then), df(1, then), df(2, then) }).check(diff()).show();
+    }
+
+    Runnable df(final int d0, final Runnable then) { return new Runnable() { public void run() { prefs().edit().putInt("fightDiff", d0).apply(); if (then != null) then.run(); else toast("Fight difficulty: " + DIFF[d0]); } }; }
 
     void exitApp() { pl.shutdown(); if (Build.VERSION.SDK_INT >= 21) finishAndRemoveTask(); else finish(); }
 
@@ -471,17 +493,18 @@ public class MainActivity extends Activity implements Player.Listener {
         final ArrayList<Integer> idx = new ArrayList<>();
         if (pl.shuffle && pl.order.size() == pl.queue.size()) for (int k = Math.max(0, pl.opos); k < pl.order.size() && idx.size() < 150; k++) idx.add(pl.order.get(k));
         else for (int k = pl.cur; k < pl.queue.size() && idx.size() < 150; k++) idx.add(k);
-        String[] items = new String[idx.size()];
-        for (int i = 0; i < items.length; i++) { Song s = pl.queue.get(idx.get(i)); items[i] = (i == 0 ? "▶  " : i + ".  ") + s.title + "  —  " + s.artist; }
-        new AlertDialog.Builder(this).setTitle("Up Next (" + pl.queue.size() + " in queue)").setItems(items, new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dl, int i) { if (i > 0) pl.jump(idx.get(i)); }
-        }).show();
+        String[] items = new String[idx.size()]; Runnable[] acts = new Runnable[items.length];
+        for (int i = 0; i < items.length; i++) {
+            Song s = pl.queue.get(idx.get(i)); items[i] = (i == 0 ? "Now: " : i + ".  ") + s.title + "  \u2014  " + s.artist;
+            final int q = idx.get(i); acts[i] = i == 0 ? null : new Runnable() { public void run() { pl.jump(q); } };
+        }
+        menu("Up Next (" + pl.queue.size() + " in queue)", items, acts).check(0).show();
     }
 
     void sleepMenu() {
         final int[] mins = {0, 15, 30, 45, 60, 90, -1};
-        pick(new String[]{"Off", "15 minutes", "30 minutes", "45 minutes", "1 hour", "1.5 hours", "When this song ends"}, new Runnable[]{
-            sl(mins[0]), sl(mins[1]), sl(mins[2]), sl(mins[3]), sl(mins[4]), sl(mins[5]), sl(mins[6])});
+        menu("Sleep Timer (" + pl.sleepLabel() + ")", new String[]{"Off", "15 minutes", "30 minutes", "45 minutes", "1 hour", "1.5 hours", "When this song ends"}, new Runnable[]{
+            sl(mins[0]), sl(mins[1]), sl(mins[2]), sl(mins[3]), sl(mins[4]), sl(mins[5]), sl(mins[6])}).check(pl.sleepEndOfSong ? 6 : pl.sleepAt == 0 ? 0 : -1).show();
     }
 
     Runnable sl(final int m) { return new Runnable() { public void run() { pl.setSleep(m); toast(m == 0 ? "Sleep timer off" : m < 0 ? "Stopping after this song" : "Music stops in " + m + " min (fades out)"); } }; }
@@ -498,9 +521,9 @@ public class MainActivity extends Activity implements Player.Listener {
         final String[] p = presets();
         if (p.length == 0) { toast("This phone has no built-in equalizer"); return; }
         String[] items = new String[p.length + 1]; items[0] = "Off"; System.arraycopy(p, 0, items, 1, p.length);
-        new AlertDialog.Builder(this).setTitle("Equalizer").setItems(items, new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dl, int i) { pl.setEq(i - 1); }
-        }).show();
+        Runnable[] acts = new Runnable[items.length];
+        for (int i = 0; i < items.length; i++) { final int k = i - 1; acts[i] = new Runnable() { public void run() { pl.setEq(k); } }; }
+        menu("Equalizer", items, acts).check(pl.eqPreset + 1).show();
     }
 
     String speedName() { return (pl.speed == (int) pl.speed ? String.format(Locale.US, "%.1f", pl.speed) : String.format(Locale.US, "%.2f", pl.speed)).replaceAll("0$", "") + "x"; }
@@ -508,28 +531,26 @@ public class MainActivity extends Activity implements Player.Listener {
     void speedMenu() {
         if (Build.VERSION.SDK_INT < 23) { toast("Needs Android 6 or newer"); return; }
         final float[] sp = {.75f, 1f, 1.25f, 1.5f, 2f};
-        new AlertDialog.Builder(this).setTitle("Speed").setItems(new String[]{"0.75x", "1x (normal)", "1.25x", "1.5x", "2x"}, new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dl, int i) { pl.setSpeed(sp[i]); }
-        }).show();
+        String[] names = {"0.75x", "1x (normal)", "1.25x", "1.5x", "2x"}; Runnable[] acts = new Runnable[sp.length]; int ck = 1;
+        for (int i = 0; i < sp.length; i++) { final float v = sp[i]; acts[i] = new Runnable() { public void run() { pl.setSpeed(v); } }; if (Math.abs(sp[i] - pl.speed) < .01f) ck = i; }
+        menu("Playback Speed", names, acts).check(ck).show();
     }
 
     void about() {
         String ver = "";
         try { ver = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { }
-        new AlertDialog.Builder(this).setTitle("Tape Deck " + ver)
-            .setMessage("A retro music player for the files on your phone. Free and open source (MIT).\n\n" + REPO.replace("https://", "")
-                + "\n\n" + all.size() + " songs, " + artistNames().size() + " artists\n\nFonts: Determination by anonymous-1438277 (Fontstruct, CC BY 3.0), Press Start 2P (SIL OFL), Monster Friend.\n\nNot affiliated with Apple, Microsoft, Nintendo, Nullsoft or Toby Fox.")
-            .setPositiveButton("GitHub", new DialogInterface.OnClickListener() { public void onClick(DialogInterface dl, int w) {
-                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(REPO))); } catch (Exception e) { }
-            }}).setNegativeButton("Close", null).show();
+        menu("Tape Deck " + ver, new String[]{"Open the GitHub page", "Close"}, new Runnable[]{ new Runnable() { public void run() {
+                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(REPO))); } catch (Exception e) { toast(REPO); }
+            }}, null })
+            .msg("A retro music player for the files on your phone. Works fully offline. Free and open source (MIT).\n\n" + all.size() + " songs, " + artistNames().size() + " artists, " + playlists.size() + " playlists\n\n"
+                + "Fonts: Determination by anonymous-1438277 (Fontstruct, CC BY 3.0), Press Start 2P (SIL OFL), Monster Friend. Not affiliated with Apple, Microsoft, Nintendo, Nullsoft or Toby Fox.").show();
     }
 
     // ---------- delete (system "move to trash" prompt on Android 11+) ----------
     void confirmDelete(final Song s) {
         if (s == null) return;
-        new AlertDialog.Builder(this).setTitle("Delete song?").setMessage(s.title + "\n" + s.artist)
-            .setPositiveButton("Delete", new DialogInterface.OnClickListener() { public void onClick(DialogInterface dl, int w) { deleteSong(s); } })
-            .setNegativeButton("Cancel", null).show();
+        menu("Delete this song?", new String[]{"Delete", "Cancel"}, new Runnable[]{ new Runnable() { public void run() { deleteSong(s); } }, null })
+            .msg(s.title + "\n" + s.artist + "\n\nThis removes the file from your phone.").danger(0).show();
     }
 
     void deleteSong(Song s) {
@@ -562,31 +583,34 @@ public class MainActivity extends Activity implements Player.Listener {
         if (view != null) view.invalidate();
     }
 
-    void pick(String[] items, final Runnable[] acts) {
-        new AlertDialog.Builder(this).setItems(items, new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dl, int i) { if (i < acts.length && acts[i] != null) acts[i].run(); }
-        }).show();
-    }
+    void pick(String[] items, final Runnable[] acts) { menu(null, items, acts).show(); }
 
     /** Long-press menu for a song. */
-    void songMenu(final List<Song> l, final int i) {
+    void songMenu(final List<Song> l, final int i) { songMenu(l, i, fk == F_PLAYLIST ? plKey(fv) : null); }
+
+    /** Long-press menu for a song. plName = the playlist the list came from (adds reorder / remove). */
+    void songMenu(final List<Song> l, final int i, final String plName) {
         if (i < 0 || i >= l.size()) return;
         final Song s = l.get(i);
-        new AlertDialog.Builder(this).setTitle(s.title).setItems(new String[]{"Play", "Play Next", "Add to Queue", fav(s) ? "Remove from Favorites" : "Add to Favorites",
-            "Go to Artist: " + s.artist, "Go to Album: " + s.album, "Delete..."}, new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dl, int w) {
-                if (w == 0) playList(l, i);
-                else if (w == 1) { pl.playNext(s); toast("Playing next"); }
-                else if (w == 2) { pl.addToQueue(s); toast("Added to queue"); }
-                else if (w == 3) toggleFav(s);
-                else if (w == 4) setFilter(F_ARTIST, s.artist);
-                else if (w == 5) setFilter(F_ALBUM, s.album);
-                else confirmDelete(s);
-            }
-        }).show();
+        ArrayList<String> it = new ArrayList<>(); ArrayList<Runnable> ac = new ArrayList<>();
+        it.add("Play"); ac.add(new Runnable() { public void run() { playList(l, i); } });
+        it.add("Play Next"); ac.add(new Runnable() { public void run() { pl.playNext(s); toast("Playing next"); } });
+        it.add("Add to Queue"); ac.add(new Runnable() { public void run() { pl.addToQueue(s); toast("Added to queue"); } });
+        it.add("Add to Playlist..."); ac.add(new Runnable() { public void run() { addToPlaylist(s); } });
+        it.add(fav(s) ? "Remove from Favorites" : "Add to Favorites \u2665"); ac.add(new Runnable() { public void run() { toggleFav(s); } });
+        if (plName != null) {
+            if (i > 0) { it.add("Move Up"); ac.add(new Runnable() { public void run() { plMove(plName, s, -1); } }); }
+            if (i < l.size() - 1) { it.add("Move Down"); ac.add(new Runnable() { public void run() { plMove(plName, s, 1); } }); }
+            it.add("Remove from " + plName); ac.add(new Runnable() { public void run() { plRemove(plName, s); } });
+        }
+        it.add("Go to Artist: " + s.artist); ac.add(new Runnable() { public void run() { setFilter(F_ARTIST, s.artist); } });
+        it.add("Go to Album: " + s.album); ac.add(new Runnable() { public void run() { setFilter(F_ALBUM, s.album); } });
+        it.add("Delete from Phone..."); ac.add(new Runnable() { public void run() { confirmDelete(s); } });
+        menu(s.title, it.toArray(new String[0]), ac.toArray(new Runnable[0])).danger(it.size() - 1).show();
     }
 
     @Override public void onBackPressed() {
+        if (closeTop()) return;
         if (view instanceof Ut && ((Ut) view).back()) return;
         if (view instanceof IPod && ((IPod) view).back()) return;
         if (view instanceof ITunes && ((ITunes) view).back()) return;
@@ -603,6 +627,735 @@ public class MainActivity extends Activity implements Player.Listener {
         if (view != null) view.invalidate();
         h.postDelayed(this, skin == SECRET || (skin >= 1 && skin != ITUNES && playing()) ? 40 : 250);
     }};
+
+
+    // =====================================================================
+    //  Themed menus: every pop-up is drawn in the current theme's style
+    // =====================================================================
+    final ArrayList<View> overlays = new ArrayList<>();
+    FrameLayout root;
+
+    void addOverlay(View v) { overlays.add(v); root.addView(v, new FrameLayout.LayoutParams(-1, -1)); }
+    void removeOverlay(View v) { hideKeyboard(v); overlays.remove(v); root.removeView(v); }
+    boolean closeTop() {
+        if (overlays.isEmpty()) return false;
+        View v = overlays.get(overlays.size() - 1);
+        if (v instanceof Sheet) ((Sheet) v).dismiss(); else removeOverlay(v);
+        return true;
+    }
+    void closeAll() { while (!overlays.isEmpty()) removeOverlay(overlays.get(overlays.size() - 1)); }
+
+    void hideKeyboard(View v) {
+        try { ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(v.getWindowToken(), 0); } catch (Throwable e) { }
+    }
+
+    static final class St { int kind, bg, bg2, border, bar0, bar1, barFg, fg, sub, sel, sel2, selFg, danger = 0xFFD03030; float rad, bw, size; Typeface tf, tfm; }
+
+    St style() {
+        St s = new St(); s.kind = skin; s.size = d(16.5f);
+        s.tf = Typeface.create("sans-serif", Typeface.BOLD); s.tfm = Typeface.create("sans-serif", Typeface.NORMAL);
+        switch (skin) {
+            case 0: s.bg = WHITE; s.bg2 = 0xFFF2F2F5; s.border = 0xFF8F9195; s.bar0 = WHITE; s.bar1 = 0xFFB9BBBF; s.barFg = BLACK; s.fg = BLACK; s.sub = 0xFF666666;
+                s.sel = 0xFF55A3F0; s.sel2 = 0xFF1B69C7; s.selFg = WHITE; s.rad = d(12); s.bw = d(1.5f); break;
+            case 1: s.bg = 0xFFECE9D8; s.bg2 = WHITE; s.border = 0xFF0A3FB0; s.bar0 = 0xFF3D8DF9; s.bar1 = 0xFF0846B8; s.barFg = WHITE; s.fg = BLACK; s.sub = 0xFF555555;
+                s.sel = 0xFF316AC5; s.sel2 = 0xFF316AC5; s.selFg = WHITE; s.rad = d(8); s.bw = d(3); s.tfm = Typeface.create("sans-serif", Typeface.NORMAL); break;
+            case 2: s.bg = 0xFFC0C0C0; s.bg2 = WHITE; s.border = BLACK; s.bar0 = 0xFF000080; s.bar1 = 0xFF1084D0; s.barFg = WHITE; s.fg = BLACK; s.sub = 0xFF404040;
+                s.sel = 0xFF000080; s.sel2 = 0xFF000080; s.selFg = WHITE; s.rad = 0; s.bw = d(2); s.tf = Typeface.create("sans-serif", Typeface.NORMAL); break;
+            case 3: s.bg = 0xFF9BBC0F; s.bg2 = 0xFF8BAC0F; s.border = 0xFF0F380F; s.bar0 = s.bar1 = 0xFF0F380F; s.barFg = 0xFF9BBC0F; s.fg = 0xFF0F380F; s.sub = 0xFF306230;
+                s.sel = s.sel2 = 0xFF306230; s.selFg = 0xFF9BBC0F; s.rad = 0; s.bw = d(3); s.tf = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD); s.tfm = Typeface.MONOSPACE; s.size = d(15); break;
+            case 4: s.bg = 0xFF1A1A22; s.bg2 = 0xFF0E0E14; s.border = 0xFF5A5A6E; s.bar0 = 0xFF4A4A5C; s.bar1 = 0xFF26262F; s.barFg = 0xFFFFD84A; s.fg = 0xFF00E000; s.sub = 0xFF8FC08F;
+                s.sel = s.sel2 = 0xFF0000C6; s.selFg = WHITE; s.rad = d(2); s.bw = d(2); s.tf = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD); s.tfm = Typeface.MONOSPACE; s.size = d(15); break;
+            case 5: s.bg = 0xFFF3E7C9; s.bg2 = 0xFFFFF8E6; s.border = 0xFF2B2118; s.bar0 = 0xFFE0662A; s.bar1 = 0xFFB23C0B; s.barFg = 0xFFFFF3D6; s.fg = 0xFF2B2118; s.sub = 0xFF7A6448;
+                s.sel = s.sel2 = 0xFFC8460F; s.selFg = 0xFFFFF3D6; s.rad = d(6); s.bw = d(2.5f); break;
+            case ITUNES: s.bg = 0xF2283442; s.bg2 = WHITE; s.border = 0xFF0F141B; s.barFg = 0xFFE3E7EE; s.fg = 0xFF1C1C1C; s.sub = 0xFF9AA3B2;
+                s.sel = 0xFF5D9AF3; s.sel2 = 0xFF1D5BCF; s.selFg = WHITE; s.rad = d(9); s.bw = d(1); s.size = d(17.5f); break;
+            default: s.bg = BLACK; s.bg2 = BLACK; s.border = WHITE; s.barFg = WHITE; s.fg = WHITE; s.sub = 0xFFBBBBBB; s.sel = s.sel2 = BLACK; s.selFg = 0xFFFFFF00;
+                s.danger = 0xFFFF4040; s.rad = 0; s.bw = d(4); s.tf = utFont; s.tfm = utFont; s.size = utSize(9);
+        }
+        return s;
+    }
+
+    /** Text size for the pixel fonts, snapped to their grid so they stay crisp. */
+    float utSize(float cw) { float px = d(cw) / utAdv; if (utGrid > 0) px = Math.max(utGrid, Math.round(px / utGrid) * utGrid); return px; }
+
+    static void pixHeart(Canvas c, Paint p, float x, float y, float s, int col) {
+        String[] g = {".XX.XX.", "XXXXXXX", "XXXXXXX", ".XXXXX.", "..XXX..", "...X..."};
+        p.setShader(null); p.setStyle(Paint.Style.FILL); p.setColor(col);
+        float x0 = x - 3.5f * s, y0 = y - 3 * s;
+        for (int j = 0; j < g.length; j++) for (int i = 0; i < 7; i++) if (g[j].charAt(i) == 'X')
+            c.drawRect(Math.round(x0 + i * s), Math.round(y0 + j * s), Math.round(x0 + (i + 1) * s), Math.round(y0 + (j + 1) * s), p);
+    }
+
+    void utBeep() { if (view instanceof Ut) ((Ut) view).beep(((Ut) view).sSel); }
+
+    Sheet menu(String title, String[] items, Runnable[] acts) { return new Sheet(title, items, acts); }
+
+    class Sheet extends View {
+        final String title; String msg; final String[] items; final Runnable[] acts; int checked = -1, danger = -1;
+        final St st = style(); final TextPaint p = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        final RectF panel = new RectF(), list = new RectF(), tmp = new RectF(), close = new RectF(), cancel = new RectF();
+        StaticLayout msgL; float rowH, stride, off, maxOff, downX, downY, lastY; int pressed = -1; boolean moved, outside, closing; long openAt;
+        final Fling fl = new Fling();
+
+        Sheet(String title, String[] items, Runnable[] acts) { super(MainActivity.this); this.title = title; this.items = items; this.acts = acts; setClickable(true); }
+        Sheet check(int i) { checked = i; return this; }
+        Sheet msg(String m) { msg = m; return this; }
+        Sheet danger(int i) { danger = i; return this; }
+        Sheet show() { openAt = SystemClock.uptimeMillis(); addOverlay(this); utBeep(); return this; }
+        void dismiss() { if (closing) return; closing = true; removeOverlay(this); }
+        void choose(int i) {
+            dismiss(); utBeep();
+            if (i >= 0 && i < acts.length && acts[i] != null) h.post(acts[i]);
+        }
+
+        boolean ut() { return st.kind == SECRET; }
+        boolean ios() { return st.kind == ITUNES; }
+
+        void text(Canvas c, String s, float x, float y, float size, int col, Typeface tf, Paint.Align al, float maxW) {
+            p.setShader(null); p.setStyle(Paint.Style.FILL); p.setTypeface(tf); p.setTextSize(size); p.setColor(col); p.setTextAlign(al);
+            if (maxW > 0) s = TextUtils.ellipsize(s, p, maxW, TextUtils.TruncateAt.END).toString();
+            c.drawText(s, x, y, p);
+        }
+
+        StaticLayout layout(String s, float size, Typeface tf, int col, int w, Layout.Alignment al) {
+            TextPaint tp = new TextPaint(Paint.ANTI_ALIAS_FLAG); tp.setTypeface(tf); tp.setTextSize(size); tp.setColor(col);
+            return new StaticLayout(s, tp, Math.max(10, w), al, 1.15f, 0, false);
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            float W = getWidth(), H = getHeight(); long t = SystemClock.uptimeMillis(); float a = Math.min(1f, (t - openAt) / 160f);
+            if (a < 1) postInvalidateOnAnimation();
+            float ea = 1 - (1 - a) * (1 - a);
+            p.setShader(null); p.setStyle(Paint.Style.FILL); p.setColor(((int) ((ios() ? 0x70 : 0x99) * ea)) << 24); c.drawRect(0, 0, W, H, p);
+            if (ios()) { drawIos(c, W, H, ea); return; }
+            boolean ut = ut();
+            float pw = Math.min(W - d(32), d(400)), pad = d(12);
+            float th = title == null ? 0 : d(ut ? 48 : 40);
+            rowH = d(ut ? 46 : 48); stride = rowH;
+            float msgH = 0;
+            if (msg != null) { msgL = layout(msg, st.size * .9f, st.tfm, ut ? WHITE : st.fg, (int) (pw - 2 * pad - (ut ? d(8) : 0)), Layout.Alignment.ALIGN_NORMAL); msgH = msgL.getHeight() + pad * 1.4f; }
+            float listH = items.length * rowH, maxH = H * .8f - th - msgH - pad;
+            float lh = Math.min(listH, Math.max(rowH * 2, maxH)), ph = th + msgH + lh + pad;
+            float px = (W - pw) / 2, py = (H - ph) / 2 + (1 - ea) * d(24);
+            panel.set(px, py, px + pw, py + ph);
+            list.set(px + st.bw, py + th + msgH + pad * .5f, px + pw - st.bw, py + th + msgH + pad * .5f + lh);
+            maxOff = Math.max(0, listH - lh); off = fl.apply(off, maxOff, this);
+            frame(c, th);
+            if (msgL != null) { c.save(); c.translate(px + pad + (ut ? d(6) : 0), py + th + pad * .7f); msgL.draw(c); c.restore(); }
+            c.save(); c.clipRect(list);
+            for (int i = 0; i < items.length; i++) {
+                float ry = list.top + i * rowH - off; if (ry + rowH < list.top || ry > list.bottom) continue;
+                row(c, i, ry);
+            }
+            c.restore();
+            if (maxOff > 0) {
+                float vh = list.height(), tk = Math.max(d(24), vh * vh / listH), ty = list.top + (vh - tk) * off / maxOff;
+                p.setColor((st.fg & 0xFFFFFF) | 0x66000000); c.drawRect(list.right - d(5), ty, list.right - d(2), ty + tk, p);
+            }
+        }
+
+        void frame(Canvas c, float th) {
+            RectF r = panel; float rad = st.rad;
+            p.setShader(null); p.setStyle(Paint.Style.FILL);
+            switch (st.kind) {
+                case 0: {   // iPod: white rounded screen with a glossy title strip
+                    p.setColor(0x40000000); c.drawRoundRect(r.left + d(2), r.top + d(4), r.right + d(2), r.bottom + d(4), rad, rad, p);
+                    p.setColor(st.bg); c.drawRoundRect(r, rad, rad, p);
+                    if (th > 0) {
+                        c.save(); Path cl = new Path(); cl.addRoundRect(r, rad, rad, Path.Direction.CW); c.clipPath(cl);
+                        p.setShader(lg(0, r.top, 0, r.top + th, st.bar0, st.bar1)); c.drawRect(r.left, r.top, r.right, r.top + th, p); p.setShader(null);
+                        p.setColor(st.border); c.drawRect(r.left, r.top + th - d(1), r.right, r.top + th, p); c.restore();
+                        text(c, title, r.left + d(14), r.top + th * .66f, st.size, st.barFg, st.tf, Paint.Align.LEFT, r.width() - d(28));
+                    }
+                    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(st.bw); p.setColor(st.border); c.drawRoundRect(r, rad, rad, p); p.setStyle(Paint.Style.FILL);
+                    break;
+                }
+                case 1: {   // Windows XP window
+                    p.setColor(0x50000000); c.drawRoundRect(r.left + d(3), r.top + d(5), r.right + d(3), r.bottom + d(5), rad, rad, p);
+                    p.setShader(lg(0, r.top, 0, r.top + Math.max(th, d(28)), 0xFF3D8DF9, 0xFF0A55DD, 0xFF0846B8)); c.drawRoundRect(r, rad, rad, p); p.setShader(null);
+                    p.setColor(st.border); c.drawRect(r.left, r.top + Math.max(th, d(10)), r.right, r.bottom, p);
+                    p.setColor(st.bg); c.drawRect(r.left + st.bw, r.top + Math.max(th, d(10)), r.right - st.bw, r.bottom - st.bw, p);
+                    if (th > 0) {
+                        text(c, title, r.left + d(12), r.top + th * .66f + d(1), d(15), 0xFF0A2A80, st.tf, Paint.Align.LEFT, r.width() - d(60));
+                        text(c, title, r.left + d(11), r.top + th * .66f, d(15), WHITE, st.tf, Paint.Align.LEFT, r.width() - d(60));
+                        float bs = d(24); close.set(r.right - d(8) - bs, r.top + (th - bs) / 2, r.right - d(8), r.top + (th + bs) / 2);
+                        p.setShader(lg(0, close.top, 0, close.bottom, 0xFFE9886F, 0xFFC03A1D)); c.drawRoundRect(close, d(4), d(4), p); p.setShader(null);
+                        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(d(1.3f)); p.setColor(WHITE); c.drawRoundRect(close, d(4), d(4), p);
+                        float g = bs * .22f, cx = close.centerX(), cy = close.centerY(); p.setStrokeWidth(d(2.2f));
+                        c.drawLine(cx - g, cy - g, cx + g, cy + g, p); c.drawLine(cx - g, cy + g, cx + g, cy - g, p); p.setStyle(Paint.Style.FILL);
+                    }
+                    break;
+                }
+                case 2: {   // Windows 95 window
+                    p.setColor(0x60000000); c.drawRect(r.left + d(3), r.top + d(3), r.right + d(3), r.bottom + d(3), p);
+                    p.setColor(st.bg); c.drawRect(r, p);
+                    float b = d(2);
+                    p.setColor(WHITE); c.drawRect(r.left, r.top, r.right, r.top + b, p); c.drawRect(r.left, r.top, r.left + b, r.bottom, p);
+                    p.setColor(0xFF404040); c.drawRect(r.left, r.bottom - b, r.right, r.bottom, p); c.drawRect(r.right - b, r.top, r.right, r.bottom, p);
+                    if (th > 0) {
+                        float i = d(4); p.setShader(lg(r.left, 0, r.right, 0, st.bar0, st.bar1)); c.drawRect(r.left + i, r.top + i, r.right - i, r.top + th - d(2), p); p.setShader(null);
+                        text(c, title, r.left + d(10), r.top + th * .64f, d(15), WHITE, Typeface.create("sans-serif", Typeface.BOLD), Paint.Align.LEFT, r.width() - d(56));
+                        float bs = d(20); close.set(r.right - i - d(4) - bs, r.top + i + d(4), r.right - i - d(4), r.top + i + d(4) + bs);
+                        p.setColor(st.bg); c.drawRect(close, p);
+                        p.setColor(WHITE); c.drawRect(close.left, close.top, close.right, close.top + d(1.5f), p); c.drawRect(close.left, close.top, close.left + d(1.5f), close.bottom, p);
+                        p.setColor(0xFF404040); c.drawRect(close.left, close.bottom - d(1.5f), close.right, close.bottom, p); c.drawRect(close.right - d(1.5f), close.top, close.right, close.bottom, p);
+                        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(d(2)); p.setColor(BLACK); float g = bs * .22f, cx = close.centerX(), cy = close.centerY();
+                        c.drawLine(cx - g, cy - g, cx + g, cy + g, p); c.drawLine(cx - g, cy + g, cx + g, cy - g, p); p.setStyle(Paint.Style.FILL);
+                    }
+                    break;
+                }
+                case SECRET: {  // Undertale box
+                    p.setColor(WHITE); c.drawRect(r, p); p.setColor(BLACK); c.drawRect(r.left + st.bw, r.top + st.bw, r.right - st.bw, r.bottom - st.bw, p);
+                    if (th > 0) text(c, "* " + title, r.left + d(16), r.top + th * .62f, utSize(10), WHITE, utFont, Paint.Align.LEFT, r.width() - d(32));
+                    break;
+                }
+                default: {  // Game Boy, Winamp, Cassette: flat panel + title bar
+                    p.setColor(0x50000000); c.drawRoundRect(r.left + d(3), r.top + d(4), r.right + d(3), r.bottom + d(4), rad, rad, p);
+                    p.setColor(st.bg); c.drawRoundRect(r, rad, rad, p);
+                    if (th > 0) {
+                        c.save(); Path cl = new Path(); cl.addRoundRect(r, rad, rad, Path.Direction.CW); c.clipPath(cl);
+                        p.setShader(lg(0, r.top, 0, r.top + th, st.bar0, st.bar1)); c.drawRect(r.left, r.top, r.right, r.top + th, p); p.setShader(null);
+                        if (st.kind == 4) { p.setColor(0x33FFD84A); for (int k = 0; k < 4; k++) c.drawRect(r.left + d(8), r.top + d(11) + k * d(5), r.left + d(28), r.top + d(12.5f) + k * d(5), p); }
+                        c.restore();
+                        text(c, st.kind == 3 ? title.toUpperCase(Locale.US) : title, r.left + d(st.kind == 4 ? 36 : 14), r.top + th * .66f, st.size, st.barFg, st.tf, Paint.Align.LEFT, r.width() - d(48));
+                    }
+                    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(st.bw); p.setColor(st.border); c.drawRoundRect(r, rad, rad, p); p.setStyle(Paint.Style.FILL);
+                    if (st.kind == 5) { p.setColor(0xFF8A7656); float k = d(7); c.drawCircle(r.left + k, r.bottom - k, d(2.5f), p); c.drawCircle(r.right - k, r.bottom - k, d(2.5f), p); }
+                }
+            }
+        }
+
+        void row(Canvas c, int i, float ry) {
+            boolean pr = pressed == i && !moved, ck = checked == i, ut = ut(), gb = st.kind == 3;
+            int col = i == danger ? st.danger : st.fg;
+            float l = list.left, r = list.right;
+            if (pr && !ut) {
+                if (st.sel != st.sel2) p.setShader(lg(0, ry, 0, ry + rowH, st.sel, st.sel2)); else p.setColor(st.sel);
+                c.drawRect(l, ry, r, ry + rowH, p); p.setShader(null); col = st.selFg;
+            }
+            float x = l + d(16);
+            if (ut) {
+                if (pr || ck) pixHeart(c, p, l + d(18), ry + rowH / 2, d(1.4f), 0xFFFF0000);
+                x = l + d(34); col = pr ? 0xFFFFFF00 : (i == danger ? st.danger : WHITE);
+            } else if (gb) {
+                if (pr || ck) text(c, "▶", l + d(10), ry + rowH * .64f, st.size, col, Typeface.DEFAULT_BOLD, Paint.Align.LEFT, 0);
+                x = l + d(30);
+            }
+            String s = ut ? "* " + items[i] : items[i];
+            text(c, s, x, ry + rowH * .63f, st.size, col, ut ? utFont : (i == checked || st.kind == 0 ? st.tf : (st.tfm == null ? st.tf : st.tf)), Paint.Align.LEFT, r - x - d(ck && !ut && !gb ? 40 : 14));
+            if (ck && !ut && !gb) text(c, "✓", r - d(16), ry + rowH * .64f, st.size * 1.1f, pr ? st.selFg : st.sel2, Typeface.DEFAULT_BOLD, Paint.Align.RIGHT, 0);
+            if (!ut && i < items.length - 1 && !pr) { p.setColor((st.fg & 0xFFFFFF) | 0x22000000); c.drawRect(l + d(12), ry + rowH - d(1), r - d(12), ry + rowH, p); }
+        }
+
+        // iPhone OS 4 action sheet: translucent dark slab rising from the bottom, glossy buttons, separate Cancel
+        void drawIos(Canvas c, float W, float H, float a) {
+            float m = d(20), pad = d(16), gap = d(9);
+            rowH = d(47); stride = rowH + gap;
+            String head = title == null ? msg : (msg == null ? title : title + "\n" + msg);
+            StaticLayout hl = head == null ? null : layout(head, d(14.5f), Typeface.create("sans-serif", Typeface.NORMAL), st.barFg, (int) (W - 2 * m), Layout.Alignment.ALIGN_CENTER);
+            float hh = hl == null ? 0 : hl.getHeight() + pad;
+            float listH = items.length * stride, cancelH = rowH + gap * 1.6f;
+            float lh = Math.min(listH, Math.max(stride * 2, H * .82f - hh - cancelH - pad * 2));
+            float sh = pad + hh + lh + cancelH + pad * .6f, top = H - sh + (1 - a) * sh;
+            panel.set(0, top, W, H + d(2));
+            p.setShader(new LinearGradient(0, top, 0, H, new int[]{0xEE46546A, 0xF2283241, 0xF7141920}, null, Shader.TileMode.CLAMP)); c.drawRect(panel, p); p.setShader(null);
+            p.setColor(0x88FFFFFF); c.drawRect(0, top, W, top + d(1), p); p.setColor(0xFF0B0F15); c.drawRect(0, top - d(1), W, top, p);
+            if (hl != null) { c.save(); c.translate(m, top + pad); hl.draw(c); c.restore(); }
+            list.set(0, top + pad + hh, W, top + pad + hh + lh);
+            maxOff = Math.max(0, listH - lh); off = fl.apply(off, maxOff, this);
+            c.save(); c.clipRect(list);
+            for (int i = 0; i < items.length; i++) {
+                float y = list.top + i * stride - off; if (y + rowH < list.top || y > list.bottom) continue;
+                tmp.set(m, y, W - m, y + rowH);
+                boolean pr = pressed == i && !moved, red = i == danger;
+                iosButton(c, tmp, (checked == i ? "✓ " : "") + items[i], pr ? new int[]{0xFF7AB0F7, 0xFF2A6BDA, 0xFF1D5BCF} : red ? new int[]{0xFFF59088, 0xFFDA3B30, 0xFFC4251C} : new int[]{0xFFFFFFFF, 0xFFF1F2F5, 0xFFD3D6DD}, pr || red ? WHITE : st.fg);
+            }
+            c.restore();
+            cancel.set(m, H - pad * .6f - rowH, W - m, H - pad * .6f);
+            iosButton(c, cancel, "Cancel", pressed == -2 ? new int[]{0xFF454950, 0xFF26292E, 0xFF1A1C20} : new int[]{0xFF73777F, 0xFF4A4E56, 0xFF2E3138}, WHITE);
+        }
+
+        void iosButton(Canvas c, RectF r, String s, int[] g, int tc) {
+            p.setShader(new LinearGradient(0, r.top, 0, r.bottom, g, new float[]{0, .5f, 1}, Shader.TileMode.CLAMP)); c.drawRoundRect(r, st.rad, st.rad, p); p.setShader(null);
+            p.setColor(0x40FFFFFF); c.drawRoundRect(r.left + d(1), r.top + d(1), r.right - d(1), r.centerY(), st.rad, st.rad, p);
+            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(d(1)); p.setColor(st.border); c.drawRoundRect(r, st.rad, st.rad, p); p.setStyle(Paint.Style.FILL);
+            text(c, s, r.centerX(), r.centerY() + d(6), st.size, tc, Typeface.create("sans-serif", Typeface.BOLD), Paint.Align.CENTER, r.width() - d(16));
+        }
+
+        int rowAt(float x, float y) {
+            if (ios() && cancel.contains(x, y)) return -2;
+            if (!list.contains(x, y)) return -1;
+            float rel = y - list.top + off; int i = (int) (rel / stride);
+            if (i < 0 || i >= items.length || rel - i * stride > rowH) return -1;
+            return i;
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            float x = e.getX(), y = e.getY();
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downX = x; downY = y; lastY = y; moved = false; fl.down(e);
+                    outside = !panel.contains(x, y); pressed = close.contains(x, y) ? -3 : rowAt(x, y);
+                    invalidate(); return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (Math.abs(y - downY) > d(8)) moved = true;
+                    if (moved && maxOff > 0) off -= y - lastY;
+                    lastY = y; fl.move(e); invalidate(); return true;
+                case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL:
+                    boolean up = e.getActionMasked() == MotionEvent.ACTION_UP;
+                    fl.up(e, up && moved && maxOff > 0, this);
+                    if (up && !moved) {
+                        if (outside && !panel.contains(x, y)) dismiss();
+                        else if (pressed == -3 && close.contains(x, y)) dismiss();
+                        else if (pressed == -2 && cancel.contains(x, y)) dismiss();
+                        else if (pressed >= 0 && pressed == rowAt(x, y)) choose(pressed);
+                    }
+                    pressed = -1; invalidate(); return true;
+            }
+            return true;
+        }
+    }
+
+    /** Text entry in the theme's colors (search, playlist names). */
+    void askText(String title, String hint, String init, final StrCb cb) {
+        final St st = style(); final boolean ios = st.kind == ITUNES, ut = st.kind == SECRET;
+        final FrameLayout ov = new FrameLayout(this); ov.setBackgroundColor(0x99000000); ov.setClickable(true);
+        LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setClickable(true);
+        int pd = (int) d(16); box.setPadding(pd, pd, pd, (int) d(10));
+        GradientDrawable bgd = new GradientDrawable(); bgd.setColor(st.bg); bgd.setCornerRadius(st.rad); bgd.setStroke(Math.max(1, (int) st.bw), st.border); box.setBackground(bgd);
+        TextView tv = new TextView(this); tv.setText(ut ? "* " + title : title); tv.setTextColor(ios || ut ? WHITE : st.fg); tv.setTypeface(st.tf);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, st.size * 1.05f); box.addView(tv);
+        final EditText e = new EditText(this); e.setSingleLine(); e.setHint(hint); e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        if (init != null) { e.setText(init); e.setSelection(init.length()); }
+        e.setTextColor(ios ? BLACK : st.fg); e.setHintTextColor(st.sub); e.setTypeface(ut ? utFont : st.tfm); e.setTextSize(TypedValue.COMPLEX_UNIT_PX, st.size);
+        GradientDrawable ed = new GradientDrawable(); ed.setColor(st.bg2); ed.setStroke((int) d(1.5f), ios ? 0xFF6B7585 : st.border); ed.setCornerRadius(Math.min(st.rad, d(6))); e.setBackground(ed);
+        e.setPadding((int) d(10), (int) d(8), (int) d(10), (int) d(8)); e.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(-1, -2); elp.topMargin = (int) d(12); box.addView(e, elp);
+        LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.END);
+        TextView no = textButton("Cancel", st, false), ok = textButton("OK", st, true);
+        row.addView(no); LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(-2, -2); olp.leftMargin = (int) d(10); row.addView(ok, olp);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2); rlp.topMargin = (int) d(12); box.addView(row, rlp);
+        int w = (int) Math.min(getResources().getDisplayMetrics().widthPixels - d(40), d(380));
+        ov.addView(box, new FrameLayout.LayoutParams(w, -2, Gravity.CENTER));
+        final Runnable done = new Runnable() { public void run() { removeOverlay(ov); cb.got(e.getText().toString()); } };
+        ok.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { utBeep(); done.run(); } });
+        no.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { removeOverlay(ov); } });
+        ov.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { removeOverlay(ov); } });
+        e.setOnEditorActionListener(new TextView.OnEditorActionListener() { public boolean onEditorAction(TextView v, int a, KeyEvent ev) { done.run(); return true; } });
+        addOverlay(ov); utBeep();
+        e.requestFocus();
+        e.postDelayed(new Runnable() { public void run() {
+            try { ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(e, InputMethodManager.SHOW_IMPLICIT); } catch (Throwable t) { }
+        }}, 150);
+    }
+
+    TextView textButton(String s, St st, boolean main) {
+        TextView b = new TextView(this); b.setText(st.kind == SECRET ? (main ? "* " : "") + s : s); b.setTypeface(st.tf); b.setTextSize(TypedValue.COMPLEX_UNIT_PX, st.size * .95f);
+        b.setPadding((int) d(16), (int) d(9), (int) d(16), (int) d(9)); b.setGravity(Gravity.CENTER);
+        GradientDrawable g = new GradientDrawable(); g.setCornerRadius(Math.min(st.rad, d(8)));
+        if (st.kind == SECRET) { g.setColor(BLACK); g.setStroke((int) d(3), main ? 0xFFFFFF00 : 0xFFFF7A00); b.setTextColor(main ? 0xFFFFFF00 : 0xFFFF7A00); }
+        else if (main) { g.setColors(new int[]{st.sel, st.sel2}); g.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM); b.setTextColor(st.selFg); }
+        else { g.setColor(st.kind == ITUNES ? 0xFF4A4E56 : st.bg2); g.setStroke((int) d(1.2f), st.kind == ITUNES ? 0xFF0F141B : st.border); b.setTextColor(st.kind == ITUNES ? WHITE : st.fg); }
+        b.setBackground(g);
+        return b;
+    }
+
+    // =====================================================================
+    //  Playlists (stored on the phone in playlists.json, works offline)
+    // =====================================================================
+    final LinkedHashMap<String, ArrayList<Long>> playlists = new LinkedHashMap<>();
+    File plFile() { return new File(getFilesDir(), "playlists.json"); }
+
+    void loadPlaylists() {
+        playlists.clear();
+        try {
+            FileInputStream in = new FileInputStream(plFile()); String js = new String(readAll(in), "UTF-8"); in.close();
+            JSONArray a = new JSONArray(js);
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject o = a.getJSONObject(i); JSONArray ids = o.getJSONArray("ids"); ArrayList<Long> l = new ArrayList<>();
+                for (int j = 0; j < ids.length(); j++) l.add(ids.getLong(j));
+                playlists.put(o.getString("name"), l);
+            }
+        } catch (Exception e) { }
+    }
+
+    void savePlaylists() {
+        try {
+            JSONArray a = new JSONArray();
+            for (Map.Entry<String, ArrayList<Long>> en : playlists.entrySet()) {
+                JSONObject o = new JSONObject(); JSONArray ids = new JSONArray(); for (Long id : en.getValue()) ids.put(id);
+                o.put("name", en.getKey()); o.put("ids", ids); a.put(o);
+            }
+            File tmp = new File(getFilesDir(), "playlists.json.tmp");
+            FileOutputStream fo = new FileOutputStream(tmp); fo.write(a.toString(1).getBytes("UTF-8")); fo.close();
+            if (!tmp.renameTo(plFile())) { plFile().delete(); tmp.renameTo(plFile()); }
+        } catch (Exception e) { toast("Couldn't save playlists: " + e.getMessage()); }
+        libVer++; if (view != null) view.invalidate();
+    }
+
+    ArrayList<String> playlistNames() { return new ArrayList<>(playlists.keySet()); }
+    String plKey(String name) { if (name == null) return null; for (String k : playlists.keySet()) if (k.equalsIgnoreCase(name)) return k; return null; }
+    int plSize(String name) { String k = plKey(name); return k == null ? 0 : filter(F_PLAYLIST, k).size(); }
+
+    void newPlaylist(final List<Song> add) {
+        askText("New Playlist", "Playlist name", null, new StrCb() { public void got(String n) {
+            n = n.trim(); if (n.isEmpty()) return;
+            String k = plKey(n); if (k == null) { k = n; playlists.put(k, new ArrayList<Long>()); }
+            ArrayList<Long> l = playlists.get(k); int added = 0;
+            if (add != null) for (Song s : add) if (!l.contains(s.id)) { l.add(s.id); added++; }
+            savePlaylists(); toast(added > 0 ? "Added " + added + (added == 1 ? " song to " : " songs to ") + k : "Created " + k);
+        }});
+    }
+
+    void addToPlaylist(final Song s) {
+        final ArrayList<String> names = playlistNames();
+        String[] items = new String[names.size() + 1]; Runnable[] acts = new Runnable[items.length];
+        for (int i = 0; i < names.size(); i++) {
+            final String n = names.get(i); items[i] = n + "  (" + plSize(n) + ")";
+            acts[i] = new Runnable() { public void run() {
+                ArrayList<Long> l = playlists.get(n); if (l.contains(s.id)) { toast("Already in " + n); return; }
+                l.add(s.id); savePlaylists(); toast("Added to " + n);
+            }};
+        }
+        items[names.size()] = "+ New Playlist..."; acts[names.size()] = new Runnable() { public void run() { newPlaylist(Collections.singletonList(s)); } };
+        menu("Add to Playlist", items, acts).show();
+    }
+
+    void pickPlaylist() {
+        final ArrayList<String> names = playlistNames();
+        String[] items = new String[names.size() + 1]; Runnable[] acts = new Runnable[items.length];
+        for (int i = 0; i < names.size(); i++) {
+            final String n = names.get(i); items[i] = n + "  (" + plSize(n) + ")";
+            acts[i] = new Runnable() { public void run() { playlistMenu(n); } };
+        }
+        items[names.size()] = "+ New Playlist..."; acts[names.size()] = new Runnable() { public void run() { newPlaylist(null); } };
+        menu(names.isEmpty() ? "Playlists (none yet)" : "Playlists", items, acts).show();
+    }
+
+    void playlistMenu(final String name) {
+        final ArrayList<Song> l = filter(F_PLAYLIST, name);
+        menu(name + "  (" + l.size() + ")", new String[]{"Open", "Play", "Shuffle", "Rename...", "Delete Playlist"}, new Runnable[]{
+            new Runnable() { public void run() { setFilter(F_PLAYLIST, name); } },
+            new Runnable() { public void run() { if (l.isEmpty()) toast("Empty playlist - hold a song > Add to Playlist"); else pl.playList(l, 0); } },
+            new Runnable() { public void run() { if (l.isEmpty()) toast("Empty playlist"); else pl.shuffleAll(l); } },
+            new Runnable() { public void run() { askText("Rename Playlist", "New name", name, new StrCb() { public void got(String n) {
+                n = n.trim(); if (n.isEmpty() || n.equals(name)) return;
+                if (plKey(n) != null && !n.equalsIgnoreCase(name)) { toast("There's already a playlist called " + n); return; }
+                LinkedHashMap<String, ArrayList<Long>> re = new LinkedHashMap<>();
+                for (Map.Entry<String, ArrayList<Long>> en : playlists.entrySet()) re.put(en.getKey().equals(name) ? n : en.getKey(), en.getValue());
+                playlists.clear(); playlists.putAll(re); savePlaylists();
+                if (fk == F_PLAYLIST && name.equalsIgnoreCase(fv)) setFilter(F_PLAYLIST, n);
+            }}); } },
+            new Runnable() { public void run() {
+                menu("Delete \"" + name + "\"?", new String[]{"Delete Playlist", "Keep it"}, new Runnable[]{ new Runnable() { public void run() {
+                    playlists.remove(name); savePlaylists(); if (fk == F_PLAYLIST && name.equalsIgnoreCase(fv)) setFilter(F_ALL, null); toast("Deleted " + name);
+                }}, null }).msg("The songs stay on your phone.").danger(0).show();
+            } } }).danger(4).show();
+    }
+
+    void saveQueueAsPlaylist() {
+        if (pl.queue.isEmpty()) { toast("Nothing in the queue yet"); return; }
+        newPlaylist(new ArrayList<>(pl.queue));
+    }
+
+    void plMove(String name, Song s, int dir) {
+        ArrayList<Long> l = playlists.get(plKey(name)); if (l == null) return;
+        int i = l.indexOf(s.id), j = i + dir; if (i < 0 || j < 0 || j >= l.size()) return;
+        Collections.swap(l, i, j); savePlaylists();
+    }
+
+    void plRemove(String name, Song s) {
+        ArrayList<Long> l = playlists.get(plKey(name)); if (l == null) return;
+        l.remove(s.id); savePlaylists(); toast("Removed from " + name);
+    }
+
+    final HashMap<Long, Song> byId = new HashMap<>(); int byIdVer = -1;
+    HashMap<Long, Song> byId() { if (byIdVer != libVer) { byId.clear(); for (Song s : all) byId.put(s.id, s); byIdVer = libVer; } return byId; }
+
+    // =====================================================================
+    //  Wrapped: your listening stats as full-screen story slides
+    // =====================================================================
+    void openWrapped(int slide) { closeAll(); Wrapped w = new Wrapped(); w.slide = Math.max(0, Math.min(w.count() - 1, slide)); addOverlay(w); }
+
+    class Wrapped extends View {
+        final TextPaint p = new TextPaint(Paint.ANTI_ALIAS_FLAG); final RectF tmp = new RectF();
+        final Typeface black = Typeface.create("sans-serif-black", Typeface.NORMAL), bold = Typeface.create("sans-serif", Typeface.BOLD), reg = Typeface.create("sans-serif", Typeface.NORMAL);
+        final ArrayList<Song> top = new ArrayList<>(); final ArrayList<String> artists = new ArrayList<>(); final HashMap<String, Long> artistMs = new HashMap<>();
+        final HashMap<Long, Long> songMs = new HashMap<>(); final long[] hours = new long[24];
+        long total, since; int days, streak, unique, fights, combo, peak; String persona = "", personaWhy = "";
+        int slide; long slideAt = SystemClock.uptimeMillis(), pausedAt; boolean empty;
+        static final long AUTO = 6500;
+        final int[][] PAL = {{0xFFFF2E88, 0xFF5B1BCB}, {0xFFFF7A18, 0xFFAF002D}, {0xFF00C6A7, 0xFF1E4D92}, {0xFF8E2DE2, 0xFF4A00E0}, {0xFFF7971E, 0xFFE8336D},
+            {0xFF11998E, 0xFF38EF7D}, {0xFF1F1C2C, 0xFF928DAB}, {0xFFFC466B, 0xFF3F5EFB}};
+
+        Wrapped() {
+            super(MainActivity.this); setClickable(true);
+            SharedPreferences st = getSharedPreferences("stats", 0);
+            pl.syncListen();
+            total = st.getLong("total", 0); since = st.getLong("since", System.currentTimeMillis());
+            for (int i = 0; i < 24; i++) { hours[i] = st.getLong("h_" + i, 0); if (hours[i] > hours[peak]) peak = i; }
+            for (Song s : all) {
+                long ms = st.getLong("ms_" + s.id, 0); if (ms <= 0) continue;
+                songMs.put(s.id, ms); top.add(s); unique++;
+                Long a = artistMs.get(s.artist); artistMs.put(s.artist, (a == null ? 0 : a) + ms);
+            }
+            Collections.sort(top, new Comparator<Song>() { public int compare(Song a, Song b) { return Long.compare(songMs.get(b.id), songMs.get(a.id)); } });
+            artists.addAll(artistMs.keySet());
+            Collections.sort(artists, new Comparator<String>() { public int compare(String a, String b) { return Long.compare(artistMs.get(b), artistMs.get(a)); } });
+            TreeSet<Integer> dset = new TreeSet<>();
+            for (String k : st.getAll().keySet()) if (k.startsWith("d_")) try {
+                int v = Integer.parseInt(k.substring(2)); Calendar c = Calendar.getInstance(); c.clear(); c.set(v / 10000, v / 100 % 100 - 1, v % 100);
+                dset.add((int) (c.getTimeInMillis() / 86400000L));
+            } catch (Exception e) { }
+            days = dset.size(); int run = 0, prev = Integer.MIN_VALUE;
+            for (int dd : dset) { run = dd == prev + 1 ? run + 1 : 1; streak = Math.max(streak, run); prev = dd; }
+            fights = st.getInt("fights_won", 0); combo = st.getInt("best_combo", 0);
+            empty = total < 60000 || top.isEmpty();
+            persona();
+        }
+
+        void persona() {
+            long night = 0, morning = 0; for (int h0 = 0; h0 < 24; h0++) { if (h0 >= 22 || h0 < 4) night += hours[h0]; if (h0 >= 5 && h0 < 10) morning += hours[h0]; }
+            long topMs = top.isEmpty() ? 0 : songMs.get(top.get(0).id);
+            if (total < 30 * 60000L) { persona = "The Newcomer"; personaWhy = "You're just getting started. The tape is rolling."; }
+            else if (night > total * .4) { persona = "The Night Owl"; personaWhy = "Most of your listening happens after dark."; }
+            else if (morning > total * .4) { persona = "The Early Bird"; personaWhy = "You start the day with a soundtrack."; }
+            else if (topMs > total * .2) { persona = "The Loyalist"; personaWhy = "You found The One: " + top.get(0).title + "."; }
+            else if (!all.isEmpty() && unique >= all.size() * .6) { persona = "The Explorer"; personaWhy = "You've heard " + (100 * unique / all.size()) + "% of your library."; }
+            else if (fights >= 3) { persona = "The Determined"; personaWhy = "You beat " + fights + " songs in battle."; }
+            else if (streak >= 7) { persona = "The Daily Ritual"; personaWhy = streak + " days in a row. Respect."; }
+            else { persona = "The Curator"; personaWhy = "A little bit of everything, perfectly picked."; }
+        }
+
+        int count() { return empty ? 1 : 8; }
+
+        void go(int d0) {
+            int n = slide + d0;
+            if (n < 0) n = 0;
+            if (n >= count()) { removeOverlay(this); return; }
+            slide = n; slideAt = SystemClock.uptimeMillis(); invalidate();
+        }
+
+        float k(long t, float delay) { return Math.max(0, Math.min(1, (t - slideAt - delay) / 450f)); }
+
+        void t(Canvas c, String s, float x, float y, float size, int col, Typeface tf, Paint.Align al, float maxW, float alpha) {
+            p.setShader(null); p.setStyle(Paint.Style.FILL); p.setTypeface(tf); p.setTextSize(size); p.setTextAlign(al);
+            p.setColor((col & 0xFFFFFF) | ((int) (((col >>> 24) & 255) * alpha) << 24));
+            if (maxW > 0) s = TextUtils.ellipsize(s, p, maxW, TextUtils.TruncateAt.END).toString();
+            c.drawText(s, x, y, p);
+        }
+
+        String mins(long ms) { long m = ms / 60000; return String.format(Locale.US, "%,d", m); }
+
+        void art(Canvas c, Song s, RectF r, float alpha) {
+            Bitmap b = artFor(s);
+            p.setAlpha((int) (255 * alpha));
+            if (b != null) { p.setFilterBitmap(true); c.drawBitmap(b, new Rect(0, 0, b.getWidth(), b.getHeight()), r, p); p.setFilterBitmap(false); }
+            else { p.setColor((0x33FFFFFF & 0xFFFFFF) | ((int) (0x44 * alpha) << 24)); c.drawRect(r, p); t(c, "♫", r.centerX(), r.centerY() + r.height() * .15f, r.height() * .45f, WHITE, bold, Paint.Align.CENTER, 0, alpha); }
+            p.setAlpha(255);
+        }
+
+        void cassette(Canvas c, float cx, float cy, float w, long t, float alpha) {
+            float h0 = w * .62f; tmp.set(cx - w / 2, cy - h0 / 2, cx + w / 2, cy + h0 / 2);
+            p.setStyle(Paint.Style.FILL); p.setColor((int) (alpha * 0xEE) << 24 | 0x1A1A1A); c.drawRoundRect(tmp, w * .06f, w * .06f, p);
+            p.setColor((int) (alpha * 255) << 24 | 0xFFF3D6); c.drawRoundRect(tmp.left + w * .07f, tmp.top + h0 * .1f, tmp.right - w * .07f, tmp.top + h0 * .62f, w * .03f, w * .03f, p);
+            p.setColor((int) (alpha * 255) << 24 | 0xFF2E88); c.drawRect(tmp.left + w * .07f, tmp.top + h0 * .14f, tmp.right - w * .07f, tmp.top + h0 * .22f, p);
+            float rr = h0 * .17f, ry = tmp.top + h0 * .42f;
+            for (int i = -1; i <= 1; i += 2) {
+                float rx = cx + i * w * .2f;
+                p.setColor((int) (alpha * 255) << 24 | 0x2B2118); c.drawCircle(rx, ry, rr, p);
+                p.setColor((int) (alpha * 255) << 24 | 0xFFFFFF); c.save(); c.rotate((t / 6) % 360, rx, ry);
+                for (int s = 0; s < 6; s++) { c.rotate(60, rx, ry); c.drawRect(rx - rr * .1f, ry - rr * .75f, rx + rr * .1f, ry - rr * .35f, p); }
+                c.restore();
+            }
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            float W = getWidth(), H = getHeight(), m = d(28); long t = SystemClock.uptimeMillis();
+            postInvalidateOnAnimation();
+            if (pausedAt == 0 && t - slideAt > AUTO && slide < count() - 1) go(1);
+            int[] pal = PAL[slide % PAL.length]; float sh = (float) Math.sin(t / 2400.0) * .5f + .5f;
+            p.setShader(new LinearGradient(0, 0, W * (.3f + .7f * sh), H, pal[0], pal[1], Shader.TileMode.CLAMP)); c.drawRect(0, 0, W, H, p); p.setShader(null);
+            // soft blobs
+            p.setColor(0x22FFFFFF); c.drawCircle(W * (.15f + .2f * sh), H * .2f, W * .45f, p); p.setColor(0x18000000); c.drawCircle(W * .9f, H * (.75f + .1f * sh), W * .55f, p);
+            // story progress bars + close
+            float bw = (W - d(24) - (count() - 1) * d(4)) / count();
+            for (int i = 0; i < count(); i++) {
+                float x = d(12) + i * (bw + d(4)); p.setColor(0x55FFFFFF); c.drawRoundRect(x, d(36), x + bw, d(39), d(2), d(2), p);
+                float f = i < slide ? 1 : i > slide ? 0 : (slide == count() - 1 ? 1 : Math.min(1, (pausedAt > 0 ? pausedAt - slideAt : t - slideAt) / (float) AUTO));
+                p.setColor(WHITE); c.drawRoundRect(x, d(36), x + bw * f, d(39), d(2), d(2), p);
+            }
+            t(c, "✕", W - d(22), d(70), d(22), WHITE, bold, Paint.Align.RIGHT, 0, 1);
+            t(c, "TAPE DECK WRAPPED", d(16), d(70), d(12), 0xCCFFFFFF, bold, Paint.Align.LEFT, 0, 1);
+            float cx = W / 2, mw = W - 2 * m;
+            if (empty) {
+                cassette(c, cx, H * .36f, W * .6f, t, k(t, 0));
+                t(c, "Your Wrapped", cx, H * .58f, d(34), WHITE, black, Paint.Align.CENTER, mw, k(t, 150));
+                t(c, "is still recording.", cx, H * .58f + d(40), d(24), WHITE, bold, Paint.Align.CENTER, mw, k(t, 300));
+                t(c, "Play some music and come back -", cx, H * .58f + d(84), d(15), 0xDDFFFFFF, reg, Paint.Align.CENTER, mw, k(t, 450));
+                t(c, "every minute you listen counts.", cx, H * .58f + d(106), d(15), 0xDDFFFFFF, reg, Paint.Align.CENTER, mw, k(t, 450));
+                return;
+            }
+            switch (slide) {
+                case 0: {
+                    cassette(c, cx, H * .33f, W * .62f, t, k(t, 0));
+                    t(c, "Your year", cx, H * .56f, d(40), WHITE, black, Paint.Align.CENTER, mw, k(t, 150));
+                    t(c, "on tape.", cx, H * .56f + d(46), d(40), WHITE, black, Paint.Align.CENTER, mw, k(t, 300));
+                    String sd = new SimpleDateFormat("MMMM d, yyyy", Locale.US).format(new Date(since));
+                    t(c, "Since " + sd, cx, H * .56f + d(92), d(15), 0xDDFFFFFF, bold, Paint.Align.CENTER, mw, k(t, 500));
+                    t(c, "Tap to continue  ›", cx, H - d(48), d(14), 0xAAFFFFFF, bold, Paint.Align.CENTER, mw, k(t, 900));
+                    break;
+                }
+                case 1: {
+                    t(c, "You listened for", cx, H * .3f, d(22), WHITE, bold, Paint.Align.CENTER, mw, k(t, 0));
+                    long shown = (long) (total * Math.min(1, (t - slideAt) / 1300f));
+                    t(c, mins(shown), cx, H * .3f + d(92), d(82), WHITE, black, Paint.Align.CENTER, mw, k(t, 150));
+                    t(c, "minutes", cx, H * .3f + d(132), d(26), WHITE, bold, Paint.Align.CENTER, mw, k(t, 250));
+                    long hrs = total / 3600000;
+                    String fun = hrs >= 24 ? "That's " + String.format(Locale.US, "%.1f", total / 86400000.0) + " whole days of music." : hrs >= 1 ? "That's " + hrs + (hrs == 1 ? " hour" : " hours") + " of pure sound." : "Every minute counts.";
+                    t(c, fun, cx, H * .3f + d(190), d(16), 0xEEFFFFFF, reg, Paint.Align.CENTER, mw, k(t, 700));
+                    t(c, days + (days == 1 ? " day" : " days") + " of listening  ·  best streak " + streak, cx, H * .3f + d(216), d(14), 0xCCFFFFFF, reg, Paint.Align.CENTER, mw, k(t, 850));
+                    break;
+                }
+                case 2: {
+                    Song s = top.get(0); long ms = songMs.get(s.id);
+                    t(c, "Your #1 song", cx, H * .17f, d(22), WHITE, bold, Paint.Align.CENTER, mw, k(t, 0));
+                    float as = Math.min(W * .62f, H * .34f), sc = .85f + .15f * k(t, 100);
+                    tmp.set(cx - as * sc / 2, H * .21f, cx + as * sc / 2, H * .21f + as * sc);
+                    p.setColor(0x55000000); c.drawRect(tmp.left + d(6), tmp.top + d(8), tmp.right + d(6), tmp.bottom + d(8), p);
+                    art(c, s, tmp, k(t, 100));
+                    float y = H * .21f + as + d(46);
+                    t(c, s.title, cx, y, d(30), WHITE, black, Paint.Align.CENTER, mw, k(t, 350));
+                    t(c, s.artist, cx, y + d(32), d(18), 0xEEFFFFFF, bold, Paint.Align.CENTER, mw, k(t, 450));
+                    t(c, mins(ms) + " minutes  ·  " + pl.plays(s) + " plays", cx, y + d(64), d(15), 0xDDFFFFFF, reg, Paint.Align.CENTER, mw, k(t, 600));
+                    break;
+                }
+                case 3: {
+                    t(c, "Your top songs", m, H * .16f, d(30), WHITE, black, Paint.Align.LEFT, mw, k(t, 0));
+                    float y = H * .16f + d(28), rh = Math.min(d(84), (H * .78f - y) / 5);
+                    for (int i = 0; i < Math.min(5, top.size()); i++) {
+                        Song s = top.get(i); float a = k(t, 120 + i * 110), x = m - (1 - a) * d(30), ry = y + i * rh;
+                        t(c, "" + (i + 1), x, ry + rh * .62f, d(30), WHITE, black, Paint.Align.LEFT, 0, a);
+                        float as = rh - d(14); tmp.set(x + d(38), ry + d(7), x + d(38) + as, ry + d(7) + as); art(c, s, tmp, a);
+                        float tx = tmp.right + d(14), tw = W - tx - m;
+                        t(c, s.title, tx, ry + rh * .45f, d(18), WHITE, bold, Paint.Align.LEFT, tw, a);
+                        t(c, s.artist + "  ·  " + mins(songMs.get(s.id)) + " min", tx, ry + rh * .45f + d(22), d(14), 0xDDFFFFFF, reg, Paint.Align.LEFT, tw, a);
+                    }
+                    break;
+                }
+                case 4: {
+                    t(c, "Your top artists", m, H * .16f, d(30), WHITE, black, Paint.Align.LEFT, mw, k(t, 0));
+                    float y = H * .16f + d(40), rh = Math.min(d(84), (H * .78f - y) / 5); long mx = artists.isEmpty() ? 1 : artistMs.get(artists.get(0));
+                    for (int i = 0; i < Math.min(5, artists.size()); i++) {
+                        String a0 = artists.get(i); float a = k(t, 120 + i * 110), ry = y + i * rh;
+                        t(c, (i + 1) + "  " + a0, m, ry + d(24), d(i == 0 ? 26 : 20), WHITE, i == 0 ? black : bold, Paint.Align.LEFT, mw, a);
+                        float bwid = mw * artistMs.get(a0) / (float) mx * a;
+                        p.setColor(0x55FFFFFF); c.drawRoundRect(m, ry + d(36), m + mw, ry + d(44), d(4), d(4), p);
+                        p.setColor(WHITE); c.drawRoundRect(m, ry + d(36), m + Math.max(d(8), bwid), ry + d(44), d(4), d(4), p);
+                        t(c, mins(artistMs.get(a0)) + " min", m + mw, ry + d(24), d(14), 0xDDFFFFFF, reg, Paint.Align.RIGHT, 0, a);
+                    }
+                    break;
+                }
+                case 5: {
+                    String when = peak >= 22 || peak < 4 ? "late at night" : peak < 10 ? "in the morning" : peak < 14 ? "around midday" : peak < 18 ? "in the afternoon" : "in the evening";
+                    t(c, "Your listening clock", m, H * .16f, d(30), WHITE, black, Paint.Align.LEFT, mw, k(t, 0));
+                    t(c, "You listen most " + when + ".", m, H * .16f + d(32), d(17), 0xEEFFFFFF, bold, Paint.Align.LEFT, mw, k(t, 150));
+                    long mx = 1; for (long v : hours) mx = Math.max(mx, v);
+                    float bx = m, by = H * .72f, bh = H * .4f, gw = mw / 24f;
+                    for (int i = 0; i < 24; i++) {
+                        float a = k(t, 200 + i * 25), hh = Math.max(d(3), bh * hours[i] / (float) mx * a);
+                        p.setColor(i == peak ? WHITE : 0x88FFFFFF); c.drawRoundRect(bx + i * gw + d(2), by - hh, bx + (i + 1) * gw - d(2), by, d(3), d(3), p);
+                    }
+                    String[] lb = {"12am", "6am", "12pm", "6pm"};
+                    for (int i = 0; i < 4; i++) t(c, lb[i], bx + i * 6 * gw, by + d(22), d(12), 0xCCFFFFFF, bold, Paint.Align.LEFT, 0, k(t, 300));
+                    t(c, "Peak: " + (peak % 12 == 0 ? 12 : peak % 12) + (peak < 12 ? "am" : "pm"), m, by + d(56), d(20), WHITE, black, Paint.Align.LEFT, 0, k(t, 700));
+                    break;
+                }
+                case 6: {
+                    t(c, "Your listening personality", cx, H * .24f, d(18), WHITE, bold, Paint.Align.CENTER, mw, k(t, 0));
+                    float s = .6f + .4f * k(t, 200);
+                    c.save(); c.scale(s, s, cx, H * .42f);
+                    t(c, persona, cx, H * .42f, d(40), WHITE, black, Paint.Align.CENTER, mw, k(t, 200));
+                    c.restore();
+                    StaticLayout sl = new StaticLayout(personaWhy, tp(d(18), 0xEEFFFFFF, reg, k(t, 600)), (int) mw, Layout.Alignment.ALIGN_CENTER, 1.2f, 0, false);
+                    c.save(); c.translate(m, H * .47f); sl.draw(c); c.restore();
+                    if (fights > 0) t(c, "♥ " + fights + (fights == 1 ? " fight won" : " fights won") + "  ·  best combo x" + combo, cx, H * .66f, d(15), WHITE, bold, Paint.Align.CENTER, mw, k(t, 900));
+                    break;
+                }
+                default: {   // summary card
+                    float cw = Math.min(W - 2 * d(24), d(380)), ch = Math.min(H * .7f, d(520)), x0 = cx - cw / 2, y0 = H * .14f;
+                    float a = k(t, 0); tmp.set(x0, y0 + (1 - a) * d(40), x0 + cw, y0 + ch + (1 - a) * d(40));
+                    p.setColor((int) (a * 0x33) << 24); c.drawRoundRect(tmp.left + d(6), tmp.top + d(10), tmp.right + d(6), tmp.bottom + d(10), d(22), d(22), p);
+                    p.setColor((int) (a * 0xF2) << 24 | 0x101015); c.drawRoundRect(tmp, d(22), d(22), p);
+                    float pad = d(22), x = tmp.left + pad, iw = cw - 2 * pad, y = tmp.top + pad;
+                    Song s = top.get(0);
+                    float as = d(92); tmp.set(x, y, x + as, y + as); art(c, s, tmp, a);
+                    t(c, "TAPE DECK", tmp.right + d(14), y + d(22), d(13), pal[0], black, Paint.Align.LEFT, 0, a);
+                    t(c, "WRAPPED", tmp.right + d(14), y + d(48), d(26), WHITE, black, Paint.Align.LEFT, 0, a);
+                    t(c, persona, tmp.right + d(14), y + d(76), d(15), 0xCCFFFFFF, bold, Paint.Align.LEFT, iw - as - d(14), a);
+                    y += as + d(30);
+                    float col2 = x + iw / 2 + d(6);
+                    t(c, "Top Songs", x, y, d(13), 0x99FFFFFF, bold, Paint.Align.LEFT, 0, a);
+                    t(c, "Top Artists", col2, y, d(13), 0x99FFFFFF, bold, Paint.Align.LEFT, 0, a);
+                    for (int i = 0; i < 5; i++) {
+                        float ry = y + d(26) + i * d(24);
+                        if (i < top.size()) t(c, (i + 1) + " " + top.get(i).title, x, ry, d(15), WHITE, bold, Paint.Align.LEFT, iw / 2 - d(10), a);
+                        if (i < artists.size()) t(c, (i + 1) + " " + artists.get(i), col2, ry, d(15), WHITE, bold, Paint.Align.LEFT, iw / 2 - d(10), a);
+                    }
+                    y += d(26) + 5 * d(24) + d(18);
+                    t(c, "Minutes Listened", x, y, d(13), 0x99FFFFFF, bold, Paint.Align.LEFT, 0, a);
+                    t(c, "Best Streak", col2, y, d(13), 0x99FFFFFF, bold, Paint.Align.LEFT, 0, a);
+                    t(c, mins(total), x, y + d(34), d(30), WHITE, black, Paint.Align.LEFT, 0, a);
+                    t(c, streak + (streak == 1 ? " day" : " days"), col2, y + d(34), d(30), WHITE, black, Paint.Align.LEFT, 0, a);
+                    t(c, "Screenshot it and share  •  tap to close", cx, H - d(40), d(13), 0xCCFFFFFF, bold, Paint.Align.CENTER, mw, k(t, 600));
+                }
+            }
+        }
+
+        TextPaint tp(float size, int col, Typeface tf, float alpha) {
+            TextPaint q = new TextPaint(Paint.ANTI_ALIAS_FLAG); q.setTextSize(size); q.setTypeface(tf);
+            q.setColor((col & 0xFFFFFF) | ((int) (((col >>> 24) & 255) * alpha) << 24)); return q;
+        }
+
+        float dx0; long downT;
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            float x = e.getX(), y = e.getY();
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN: dx0 = x; downT = SystemClock.uptimeMillis(); pausedAt = downT; return true;
+                case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL: {
+                    long held = SystemClock.uptimeMillis() - downT;
+                    slideAt += SystemClock.uptimeMillis() - pausedAt; pausedAt = 0;    // holding pauses the story
+                    if (e.getActionMasked() != MotionEvent.ACTION_UP) return true;
+                    if (x > getWidth() - d(60) && y < d(96)) { removeOverlay(this); return true; }
+                    if (Math.abs(x - dx0) > d(60)) { go(x < dx0 ? 1 : -1); return true; }
+                    if (held < 400) go(x < getWidth() * .3f ? -1 : 1);
+                    return true;
+                }
+            }
+            return true;
+        }
+    }
+
+    /** Fake-but-plausible listening history for the README screenshots (CI robot only). */
+    void seedDemoStats() {
+        SharedPreferences.Editor e = getSharedPreferences("stats", 0).edit(); e.clear();
+        long total = 0; Random r = new Random(7);
+        for (int i = 0; i < all.size(); i++) { long ms = (long) ((all.size() - i) * (all.size() - i) * 52000L + r.nextInt(400000)); if (i % 3 == 2) ms /= 2; e.putLong("ms_" + all.get(i).id, ms); total += ms; }
+        long[] hw = {2, 1, 1, 0, 0, 0, 1, 3, 5, 4, 3, 3, 4, 3, 3, 4, 6, 8, 10, 12, 13, 11, 8, 4}; long sum = 0; for (long v : hw) sum += v;
+        for (int i = 0; i < 24; i++) e.putLong("h_" + i, total * hw[i] / sum);
+        Calendar c = Calendar.getInstance();
+        for (int i = 0; i < 23; i++) { e.putLong("d_" + String.format(Locale.US, "%04d%02d%02d", c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH)), total / 23); c.add(Calendar.DAY_OF_MONTH, i == 9 ? -2 : -1); }
+        e.putLong("total", total).putLong("since", System.currentTimeMillis() - 40L * 86400000L).putInt("fights_won", 4).putInt("best_combo", 17).apply();
+        SharedPreferences.Editor pc = getSharedPreferences("playcounts", 0).edit();
+        for (int i = 0; i < all.size(); i++) pc.putInt(Long.toString(all.get(i).id), (all.size() - i) * 3 + 1);
+        pc.apply();
+        if (playlists.isEmpty() && all.size() >= 8) {
+            ArrayList<Long> a = new ArrayList<>(), b = new ArrayList<>();
+            for (int i = 0; i < all.size(); i += 2) a.add(all.get(i).id); for (int i = 1; i < 8; i += 3) b.add(all.get(i).id);
+            playlists.put("Road Trip", a); playlists.put("Late Night", b); savePlaylists();
+        }
+        libVer++;
+    }
 
     // ---------- smooth fling scrolling for the lists ----------
     class Fling {
@@ -670,8 +1423,9 @@ public class MainActivity extends Activity implements Player.Listener {
 
         ArrayList<String> items(int t, String a) {
             ArrayList<String> r = new ArrayList<>();
-            if (t == 0) { r.add("Music"); r.add("Shuffle Songs"); r.add("Now Playing"); r.add("Up Next"); r.add("Settings"); }
-            else if (t == 1) { r.add("Artists"); r.add("Albums"); r.add("Songs"); r.add("Favorites"); r.add("Recently Added"); r.add("Most Played"); r.add("Search"); }
+            if (t == 0) { r.add("Music"); r.add("Shuffle Songs"); r.add("Now Playing"); r.add("Up Next"); r.add("Wrapped"); r.add("Settings"); }
+            else if (t == 1) { r.add("Artists"); r.add("Albums"); r.add("Playlists"); r.add("Songs"); r.add("Favorites"); r.add("Recently Added"); r.add("Most Played"); r.add("Search"); }
+            else if (t == 7) { r.addAll(playlistNames()); r.add("+ New Playlist"); }
             else if (t == 2) r.addAll(artistNames());
             else if (t == 6) r.addAll(albumNames());
             else if (t == 3) for (Song s : songsOf(a)) r.add(s.title);
@@ -685,12 +1439,13 @@ public class MainActivity extends Activity implements Player.Listener {
             if (t == 0) {
                 if (i == 0) push(1, null);
                 else if (i == 1) { if (!all.isEmpty()) pl.shuffleAll(all); push(5, null); }
-                else if (i == 2) push(5, null); else if (i == 3) upNext(); else push(4, null);
+                else if (i == 2) push(5, null); else if (i == 3) upNext(); else if (i == 4) openWrapped(0); else push(4, null);
             }
+            else if (t == 7) { ArrayList<String> n = playlistNames(); if (i < n.size()) push(3, enc(F_PLAYLIST, n.get(i))); else newPlaylist(null); }
             else if (t == 1) {
-                if (i == 0) push(2, null); else if (i == 1) push(6, null); else if (i == 2) push(3, enc(F_ALL, null));
-                else if (i == 3) push(3, enc(F_FAV, null)); else if (i == 4) push(3, enc(F_RECENT, null)); else if (i == 5) push(3, enc(F_TOP, null));
-                else askText("Search", "Song, artist or album", new StrCb() { public void got(String s) { if (!s.trim().isEmpty()) { push(3, enc(F_SEARCH, s.trim())); invalidate(); } } });
+                if (i == 0) push(2, null); else if (i == 1) push(6, null); else if (i == 2) push(7, null); else if (i == 3) push(3, enc(F_ALL, null));
+                else if (i == 4) push(3, enc(F_FAV, null)); else if (i == 5) push(3, enc(F_RECENT, null)); else if (i == 6) push(3, enc(F_TOP, null));
+                else askText("Search", "Song, artist or album", null, new StrCb() { public void got(String s) { if (!s.trim().isEmpty()) { push(3, enc(F_SEARCH, s.trim())); invalidate(); } } });
             }
             else if (t == 2) { ArrayList<String> n = artistNames(); if (i < n.size()) push(3, enc(F_ARTIST, n.get(i))); }
             else if (t == 6) { ArrayList<String> n = albumNames(); if (i < n.size()) push(3, enc(F_ALBUM, n.get(i))); }
@@ -710,8 +1465,9 @@ public class MainActivity extends Activity implements Player.Listener {
         }
 
         void delPrompt(int i) {
+            if (node()[0] == 7) { ArrayList<String> n = playlistNames(); if (i >= 0 && i < n.size()) playlistMenu(n.get(i)); return; }
             if (node()[0] != 3) return;
-            ArrayList<Song> l = songsOf(arg()); if (i >= 0 && i < l.size()) songMenu(l, i);
+            ArrayList<Song> l = songsOf(arg()); if (i >= 0 && i < l.size()) songMenu(l, i, encK(arg()) == F_PLAYLIST ? plKey(encV(arg())) : null);
         }
 
         void art(Canvas c, float l, float t, float r, float b, String seed) {
@@ -755,7 +1511,7 @@ public class MainActivity extends Activity implements Player.Listener {
             p.setColor(WHITE); c.drawRect(lcd, p);
             p.setShader(lg(0, lcd.top, 0, lcd.top + th, 0xFFFFFFFF, 0xFFB9BBBF)); c.drawRect(lcd.left, lcd.top, lcd.left + listW, lcd.top + th, p); p.setShader(null);
             p.setColor(0xFF8F9195); c.drawRect(lcd.left, lcd.top + th - d(1), lcd.left + listW, lcd.top + th, p);
-            String title = t == 0 ? "iPod" : t == 1 ? "Music" : t == 2 ? "Artists" : t == 6 ? "Albums" : t == 3 ? label(encK(a), encV(a)) : t == 4 ? "Settings" : "Now Playing";
+            String title = t == 0 ? "iPod" : t == 1 ? "Music" : t == 2 ? "Artists" : t == 6 ? "Albums" : t == 7 ? "Playlists" : t == 3 ? label(encK(a), encV(a)) : t == 4 ? "Settings" : "Now Playing";
             txt(c, p, title, lcd.left + d(8), lcd.top + th * .74f, th * .58f, BLACK, true, Paint.Align.LEFT, listW - d(64));
             if (playing()) { p.setColor(0xFF2D7FE0); tri(c, p, lcd.left + listW - d(44), lcd.top + th * .5f, th * .42f, 1); }
             float bl = lcd.left + listW - d(32), bt = lcd.top + th * .27f, bb = lcd.top + th * .73f;
@@ -771,7 +1527,7 @@ public class MainActivity extends Activity implements Player.Listener {
                     float y = lcd.top + th + (i - n[2]) * rowH; boolean sel = i == n[1];
                     if (sel) { p.setShader(lg(0, y, 0, y + rowH, 0xFF55A3F0, 0xFF1B69C7)); c.drawRect(lcd.left, y, lcd.left + listW, y + rowH, p); p.setShader(null); }
                     txt(c, p, it.get(i), lcd.left + d(8), y + rowH * .72f, rowH * .56f, sel ? WHITE : BLACK, true, Paint.Align.LEFT, listW - d(30));
-                    if (t <= 2 || t == 6) {
+                    if (t <= 2 || t == 6 || t == 7) {
                         float cx = lcd.left + listW - d(12), cy = y + rowH / 2, s = rowH * .22f;
                         p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(d(2.2f)); p.setColor(sel ? WHITE : 0xFF222222);
                         Path ph = new Path(); ph.moveTo(cx - s / 2, cy - s); ph.lineTo(cx + s / 2, cy); ph.lineTo(cx - s / 2, cy + s); c.drawPath(ph, p); p.setStyle(Paint.Style.FILL);
@@ -817,7 +1573,7 @@ public class MainActivity extends Activity implements Player.Listener {
 
         final Runnable lp = new Runnable() { public void run() {
             int[] n = node();
-            if (n[0] != 3) return;
+            if (n[0] != 3 && n[0] != 7) return;
             if (down == 1) { lpFired = true; performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); delPrompt(n[1]); }
             else if (down == 2 && tapRow >= 0) { lpFired = true; performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); delPrompt(tapRow); }
         }};
@@ -1761,6 +2517,10 @@ public class MainActivity extends Activity implements Player.Listener {
 
         void startFight() {
             beep(sSel);
+            pickDifficulty(new Runnable() { public void run() { startFightNow(); } });
+        }
+
+        void startFightNow() {
             if (now() == null) toggle();
             if (now() == null) { say("* But nobody came."); return; }
             poster = false; fight = new Fight(); invalidate();
@@ -1772,8 +2532,16 @@ public class MainActivity extends Activity implements Player.Listener {
         }
 
         class Fight {
-            static final int PELLET = 0, BONE = 1, BEAM = 2, SPEAR = 3, MAXHP = 20;
-            int hp = MAXHP, items = 3, combo, best, score, dodged, gold, nextBeat, lastPos = -1, fmode = -1, fpressed = -1, wins;
+            static final int PELLET = 0, BONE = 1, BEAM = 2, SPEAR = 3;
+            // difficulty: 0 easy, 1 normal, 2 hard
+            final int diff = diff();
+            final float SPD = new float[]{.55f, .75f, 1f}[diff], SKIP = new float[]{.55f, .38f, .22f}[diff], HITBOX = new float[]{.4f, .55f, .75f}[diff],
+                COUNT = new float[]{.5f, .75f, 1f}[diff], GAP = new float[]{1.7f, 1.3f, 1f}[diff];
+            final int MAXHP = new int[]{40, 24, 16}[diff], DMG = new int[]{2, 3, 4}[diff], INV = new int[]{1600, 1200, 850}[diff],
+                COOL = new int[]{420, 280, 120}[diff], WARN = new int[]{850, 650, 480}[diff], PERF = new int[]{160, 125, 95}[diff], GOOD = new int[]{320, 240, 170}[diff],
+                REGEN = new int[]{2500, 5000, 0}[diff];
+            long lastSpawn, lastHurt, lastRegen;
+            int hp = MAXHP, items = new int[]{6, 4, 2}[diff], combo, best, score, dodged, gold, nextBeat, lastPos = -1, fmode = -1, fpressed = -1, wins;
             long invUntil, msgUntil, dmgAt, shakeUntil, flashUntil, overAt, nextTyped;
             String msg = "", dmgText = ""; int dmgCol = WHITE;
             Beats beats; long songId = Long.MIN_VALUE; String songTitle = "";
@@ -1790,6 +2558,8 @@ public class MainActivity extends Activity implements Player.Listener {
             void meet(final Song s, long t0) {
                 if (songId != Long.MIN_VALUE && !over) {   // previous song ended with you alive = victory
                     wins++; int exp = 10 + score / 10; gold += 5 + dodged / 4;
+                    SharedPreferences st = getSharedPreferences("stats", 0);
+                    st.edit().putInt("fights_won", st.getInt("fights_won", 0) + 1).putInt("best_combo", Math.max(st.getInt("best_combo", 0), best)).apply();
                     tell("* YOU WON!  You earned " + exp + " EXP and " + (5 + dodged / 4) + " gold.", 3500);
                 } else tell("* " + s.title + " draws near!", 3000);
                 songId = s.id; songTitle = s.title; shots.clear(); nextBeat = 0; lastPos = -1;
@@ -1809,20 +2579,21 @@ public class MainActivity extends Activity implements Player.Listener {
 
             void onBeat(float pw, int idx, long t0) {
                 pulse = 1f; if (pw > .7f) flashUntil = t0 + 110;
-                if (pw < .22f) return;
+                if (pw < SKIP || t0 - lastSpawn < COOL) return;
+                lastSpawn = t0;
                 float bl = rBoxF.left + d(4), br = rBoxF.right - d(4), bt = rBoxF.top + d(4), bb = rBoxF.bottom - d(4), bw = br - bl, bh = bb - bt;
                 int pat = (idx / 16) % 5;   // the attack style changes every 16 beats
                 if (pw > .9f && pat != 4 && rnd.nextInt(5) == 0) pat = 4;
-                float sp = d(85) + d(150) * pw;
+                float sp = (d(85) + d(150) * pw) * SPD;
                 switch (pat) {
                     case 0: {   // rain
-                        int n = 1 + Math.round(pw * 3);
+                        int n = 1 + Math.round(pw * 3 * COUNT);
                         for (int i = 0; i < n; i++) { Shot s = new Shot(PELLET, bl + d(8) + rnd.nextFloat() * (bw - d(16)), bt - d(6), (rnd.nextFloat() - .5f) * d(30), sp); s.a = d(4); shots.add(s); }
                         break;
                     }
                     case 1: {   // bone walls with a gap
                         if (pw < .45f) { Shot s = new Shot(PELLET, bl + rnd.nextFloat() * bw, bt - d(6), 0, sp); s.a = d(4); shots.add(s); break; }
-                        boolean left = (idx & 1) == 0; float gap = d(30) + d(14) * (1 - pw), gy = bt + gap / 2 + d(6) + rnd.nextFloat() * (bh - gap - d(12));
+                        boolean left = (idx & 1) == 0; float gap = (d(30) + d(14) * (1 - pw)) * GAP, gy = bt + gap / 2 + d(6) + rnd.nextFloat() * (bh - gap - d(12));
                         float x0 = left ? bl - d(8) : br + d(8), v = left ? sp : -sp;
                         float topLen = gy - gap / 2 - bt, botLen = bb - (gy + gap / 2);
                         if (topLen > d(4)) { Shot s = new Shot(BONE, x0, bt + topLen / 2, v, 0); s.a = topLen / 2; s.b = d(7); shots.add(s); }
@@ -1830,7 +2601,7 @@ public class MainActivity extends Activity implements Player.Listener {
                         break;
                     }
                     case 2: {   // ring burst from the enemy
-                        int n = 6 + Math.round(pw * 8); float cx = (bl + br) / 2, cy = bt - d(10), off0 = rnd.nextFloat();
+                        int n = Math.round((6 + pw * 8) * COUNT) + 2; float cx = (bl + br) / 2, cy = bt - d(10), off0 = rnd.nextFloat();
                         for (int i = 0; i < n; i++) {
                             double ang = Math.PI * (.12 + .76 * ((i + off0) / n));
                             Shot s = new Shot(PELLET, cx, cy, (float) Math.cos(ang) * sp * .8f, (float) Math.sin(ang) * sp * .8f); s.a = d(3.5f); shots.add(s);
@@ -1838,7 +2609,7 @@ public class MainActivity extends Activity implements Player.Listener {
                         break;
                     }
                     case 3: {   // spears aimed at you
-                        int n = pw > .75f ? 2 : 1;
+                        int n = pw > .75f && diff > 0 ? 2 : 1;
                         for (int i = 0; i < n; i++) {
                             int side = rnd.nextInt(4); float x = side == 0 ? bl - d(10) : side == 1 ? br + d(10) : bl + rnd.nextFloat() * bw, y = side == 2 ? bt - d(10) : side == 3 ? bb + d(10) : bt + rnd.nextFloat() * bh;
                             float dx = sx - x, dy = sy - y, len = (float) Math.max(1, Math.sqrt(dx * dx + dy * dy));
@@ -1849,14 +2620,14 @@ public class MainActivity extends Activity implements Player.Listener {
                     default: {  // blaster beam: warning line, then fire
                         if (pw < .55f) { Shot s = new Shot(PELLET, bl + rnd.nextFloat() * bw, bt - d(6), 0, sp); s.a = d(4); shots.add(s); break; }
                         boolean horiz = rnd.nextBoolean(); Shot s = new Shot(BEAM, horiz ? 0 : sx, horiz ? sy : 0, 0, 0);
-                        s.a = horiz ? 1 : 0; s.b = d(16) + d(16) * pw; s.t0 = t0 + 480; s.t1 = s.t0 + 380; shots.add(s);
+                        s.a = horiz ? 1 : 0; s.b = d(16) + d(16) * pw; s.t0 = t0 + WARN; s.t1 = s.t0 + 380; shots.add(s);
                     }
                 }
             }
 
             void hurt(int dmg, long t0) {
                 if (t0 < invUntil || over || demo) return;
-                hp = Math.max(0, hp - dmg); invUntil = t0 + 900; shakeUntil = t0 + 220; combo = 0; beep(sHit);
+                hp = Math.max(0, hp - dmg); invUntil = t0 + INV; lastHurt = t0; shakeUntil = t0 + 220; combo = 0; beep(sHit);
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                 if (hp == 0) { over = true; overAt = t0; shots.clear(); }
             }
@@ -1866,6 +2637,7 @@ public class MainActivity extends Activity implements Player.Listener {
                 if (s == null) return;
                 if (s.id != songId) meet(s, t0);
                 pulse = Math.max(0, pulse - dt * 4);
+                if (REGEN > 0 && !over && dt > 0 && hp < MAXHP && t0 - lastHurt > REGEN && t0 - lastRegen > REGEN) { hp++; lastRegen = t0; }
                 if (demo) { sx = rBoxF.centerX() + (float) Math.sin(t0 / 700.0) * rBoxF.width() * .3f; sy = rBoxF.centerY() + (float) Math.sin(t0 / 450.0) * rBoxF.height() * .25f; }
                 int p = pos();
                 if (beats != null && !over) {
@@ -1879,14 +2651,14 @@ public class MainActivity extends Activity implements Player.Listener {
                     Shot o = shots.get(i);
                     if (o.k == BEAM) {
                         if (t0 > o.t1) { shots.remove(i); if (!o.hit) { dodged++; score += 3; } continue; }
-                        if (t0 >= o.t0 && (o.a == 1 ? Math.abs(o.y - sy) : Math.abs(o.x - sx)) < o.b / 2 + sr * .6f) { o.hit = true; hurt(6, t0); if (over) return; }
+                        if (t0 >= o.t0 && (o.a == 1 ? Math.abs(o.y - sy) : Math.abs(o.x - sx)) < o.b / 2 + sr * HITBOX) { o.hit = true; hurt(DMG * 2, t0); if (over) return; }
                         continue;
                     }
                     o.x += o.vx * dt; o.y += o.vy * dt;
                     boolean in;
-                    if (o.k == BONE) in = Math.abs(o.x - sx) < o.b / 2 + sr * .7f && Math.abs(o.y - sy) < o.a + sr * .7f;
-                    else { float dx = o.x - sx, dy = o.y - sy, rr = (o.k == SPEAR ? d(5) : o.a) + sr * .7f; in = dx * dx + dy * dy < rr * rr; }
-                    if (in && !o.hit) { o.hit = true; hurt(o.k == BONE ? 4 : 3, t0); if (over) return; shots.remove(i); continue; }   // game over clears the list
+                    if (o.k == BONE) in = Math.abs(o.x - sx) < o.b / 2 + sr * HITBOX && Math.abs(o.y - sy) < o.a + sr * HITBOX;
+                    else { float dx = o.x - sx, dy = o.y - sy, rr = (o.k == SPEAR ? d(4) : o.a * .9f) + sr * HITBOX; in = dx * dx + dy * dy < rr * rr; }
+                    if (in && !o.hit) { o.hit = true; hurt(o.k == BONE ? DMG + 1 : DMG, t0); if (over) return; shots.remove(i); continue; }   // game over clears the list
                     float m = d(40);
                     if (o.x < bl - m || o.x > br + m || o.y < bt - m || o.y > bb + m) { shots.remove(i); if (!o.hit) { dodged++; score += 1; } }
                 }
@@ -1946,11 +2718,11 @@ public class MainActivity extends Activity implements Player.Listener {
                 String nm = "TAPE  LV " + Math.min(20, 1 + wins);
                 tx(c, nm, m, cy, M, WHITE, Paint.Align.LEFT, 0);
                 float hx = m + tw(nm, M) + d(12); tx(c, "HP", hx, cy, S, WHITE, Paint.Align.LEFT, 0);
-                float bx0 = hx + tw("HP", S) + d(6), bw = d(4) * MAXHP / 2f;
+                float bx0 = hx + tw("HP", S) + d(6), bw = d(2.2f) * MAXHP;
                 p.setColor(RD); c.drawRect(bx0, cy - d(8), bx0 + bw, cy + d(8), p);
                 p.setColor(YE); c.drawRect(bx0, cy - d(8), bx0 + bw * hp / MAXHP, cy + d(8), p);
                 tx(c, hp + " / " + MAXHP, bx0 + bw + d(8), cy, M, WHITE, Paint.Align.LEFT, 0);
-                tx(c, "SCORE " + score, W - m, cy, S, GR, Paint.Align.RIGHT, 0);
+                tx(c, DIFF[diff].toUpperCase(Locale.US) + "  SCORE " + score, W - m, cy, S, GR, Paint.Align.RIGHT, 0);
 
                 // FIGHT ACT ITEM MERCY
                 float gw = (W - 2 * m - 3 * d(8)) / 4;
@@ -2019,8 +2791,8 @@ public class MainActivity extends Activity implements Player.Listener {
                 if (i == 0) {   // FIGHT: rhythm hit
                     if (beats == null) { tell("* You can't find the rhythm yet.", 1500); return; }
                     int off = beats.nearest(pos()); beep(sSlash); dmgAt = t0;
-                    if (off < 110) { combo++; int dmg = 40 + combo * 4 + rnd.nextInt(10); score += dmg; dmgText = "" + dmg; dmgCol = RD; tell(combo > 1 ? "* PERFECT!  x" + combo : "* PERFECT!", 900); }
-                    else if (off < 220) { combo++; int dmg = 12 + combo + rnd.nextInt(6); score += dmg; dmgText = "" + dmg; dmgCol = RD; tell("* Good hit.", 800); }
+                    if (off < PERF) { combo++; int dmg = 40 + combo * 4 + rnd.nextInt(10); score += dmg; dmgText = "" + dmg; dmgCol = RD; tell(combo > 1 ? "* PERFECT!  x" + combo : "* PERFECT!", 900); }
+                    else if (off < GOOD) { combo++; int dmg = 12 + combo + rnd.nextInt(6); score += dmg; dmgText = "" + dmg; dmgCol = RD; tell("* Good hit.", 800); }
                     else { combo = 0; dmgText = "MISS"; dmgCol = DG; tell("* Hit on the beat!", 900); }
                     best = Math.max(best, combo);
                 } else if (i == 1) {
@@ -2028,7 +2800,7 @@ public class MainActivity extends Activity implements Player.Listener {
                     tell("* " + (s == null ? "???" : s.title.toUpperCase(Locale.US)) + " - ATK " + (beats == null ? "?" : beats.bpm) + "  DEF 0.  * " + (beats == null ? "It's warming up." : beats.real ? "It's in the groove." : "It hums a steady beat."), 3500);
                 } else if (i == 2) {
                     if (items <= 0) { tell("* Your pockets are empty.", 1800); return; }
-                    int heal = items == 3 ? MAXHP : items == 2 ? 15 : 10; String t = FOOD[3 - items]; items--;
+                    int k = rnd.nextInt(FOOD.length), heal = k == 0 ? MAXHP : k == 1 ? MAXHP * 3 / 4 : MAXHP / 2; String t = FOOD[k]; items--;
                     hp = Math.min(MAXHP, hp + heal); tell(t, 2600);
                 } else {
                     fight = null; say("* You spared " + songTitle + ".  (score " + score + ")");
@@ -2064,7 +2836,7 @@ public class MainActivity extends Activity implements Player.Listener {
     class ITunes extends View implements Scrolly {
         final TextPaint p = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         final RectF tmp = new RectF(), rBack = new RectF(), rMenu = new RectF(), rSegAll = new RectF(), rList = new RectF(), rSeek = new RectF(), rFav = new RectF(), rPanel = new RectF();
-        final RectF[] rSeg = {new RectF(), new RectF(), new RectF()}, rCtl = {new RectF(), new RectF(), new RectF(), new RectF(), new RectF()};
+        final RectF[] rSeg = {new RectF(), new RectF(), new RectF(), new RectF()}, rCtl = {new RectF(), new RectF(), new RectF(), new RectF(), new RectF()};
         final Fling fl = new Fling();
         int tab, drill = -1, backTab, mode, pressed = -1, pressRow = -1;
         float off, rowH, listT, listB, downY, lastY, seekF = -1; boolean moved, lpFired;
@@ -2080,7 +2852,7 @@ public class MainActivity extends Activity implements Player.Listener {
             return false;
         }
 
-        int count() { return tab == 0 ? filtered().size() : tab == 1 ? artistNames().size() : albumNames().size(); }
+        int count() { return tab == 0 ? filtered().size() : tab == 1 ? artistNames().size() : tab == 2 ? albumNames().size() : playlists.size() + 1; }
 
         void shadowText(Canvas c, String s, float x, float y, float size, int col, int sh, float dy, boolean bold, Paint.Align al, float maxW) {
             p.setTypeface(Typeface.create("sans-serif", bold ? Typeface.BOLD : Typeface.NORMAL)); p.setTextSize(size); p.setTextAlign(al); p.setShader(null); p.setStyle(Paint.Style.FILL);
@@ -2127,10 +2899,10 @@ public class MainActivity extends Activity implements Player.Listener {
             p.setShader(new LinearGradient(0, 0, 0, navH, new int[]{NAV0, NAV1, NAV2}, new float[]{0, .5f, 1}, Shader.TileMode.CLAMP)); c.drawRect(0, 0, W, navH, p); p.setShader(null);
             p.setColor(0x55FFFFFF); c.drawRect(0, 0, W, d(1), p);
             p.setColor(0xFF2D3642); c.drawRect(0, navH - d(1), W, navH, p);
-            String title = fk != F_ALL ? label(fk, fv) : tab == 1 ? "Artists" : tab == 2 ? "Albums" : "iTunes";
+            String title = fk != F_ALL ? label(fk, fv) : tab == 1 ? "Artists" : tab == 2 ? "Albums" : tab == 3 ? "Playlists" : "iTunes";
             shadowText(c, title, W / 2, navH / 2 + d(7), d(20), WHITE, 0xFF4A5A72, -d(1), true, Paint.Align.CENTER, W - d(200));
             boolean filtered = fk != F_ALL;
-            String bl = filtered ? new String[]{"Songs", "Artists", "Albums"}[backTab] : "Browse";
+            String bl = filtered ? new String[]{"Songs", "Artists", "Albums", "Playlists"}[backTab] : "Browse";
             p.setTypeface(Typeface.DEFAULT_BOLD); p.setTextSize(d(12.5f));
             float bw = Math.min(d(96), p.measureText(bl) + d(filtered ? 26 : 20));
             rBack.set(m, d(8), m + bw, navH - d(8)); barButton(c, rBack, bl, filtered, mode == 3);
@@ -2142,14 +2914,14 @@ public class MainActivity extends Activity implements Player.Listener {
             rSegAll.set(d(10), segT + d(9), W - d(10), segB - d(9));
             Path clip = new Path(); clip.addRoundRect(rSegAll, d(8), d(8), Path.Direction.CW);
             c.save(); c.clipPath(clip);
-            float sw = rSegAll.width() / 3; String[] sn = {"Songs", "Artists", "Albums"};
-            for (int i = 0; i < 3; i++) {
+            float sw = rSegAll.width() / 4; String[] sn = {"Songs", "Artists", "Albums", "Playlists"};
+            for (int i = 0; i < 4; i++) {
                 rSeg[i].set(rSegAll.left + i * sw, rSegAll.top, rSegAll.left + (i + 1) * sw, rSegAll.bottom);
                 boolean sel = tab == i, dn = mode == 5 && pressed == i;
                 p.setShader(new LinearGradient(0, rSegAll.top, 0, rSegAll.bottom, sel ? new int[]{0xFF7DAEF5, 0xFF3C7FE3, 0xFF2363D1, 0xFF1D5BC8} : dn ? new int[]{0xFFDADBE2, 0xFFC4C6CF, 0xFFBABCC6, 0xFFB3B5C0} : new int[]{0xFFFFFFFF, 0xFFF0F0F4, 0xFFDEDFE5, 0xFFD3D4DC},
                     new float[]{0, .5f, .5f, 1}, Shader.TileMode.CLAMP));
                 c.drawRect(rSeg[i], p); p.setShader(null);
-                shadowText(c, sn[i], rSeg[i].centerX(), rSeg[i].centerY() + d(5.5f), d(15), sel ? WHITE : 0xFF4D596D, sel ? 0xFF1B3E7E : 0xCCFFFFFF, sel ? -d(1) : d(1), true, Paint.Align.CENTER, sw - d(6));
+                shadowText(c, sn[i], rSeg[i].centerX(), rSeg[i].centerY() + d(5), d(13.5f), sel ? WHITE : 0xFF4D596D, sel ? 0xFF1B3E7E : 0xCCFFFFFF, sel ? -d(1) : d(1), true, Paint.Align.CENTER, sw - d(6));
                 if (i > 0) { p.setColor(0xFF7E8798); c.drawRect(rSeg[i].left - d(.5f), rSegAll.top, rSeg[i].left + d(.5f), rSegAll.bottom, p); }
             }
             c.restore();
@@ -2159,7 +2931,7 @@ public class MainActivity extends Activity implements Player.Listener {
             float hb = segB + d(26);
             p.setShader(lg(0, segB, 0, hb, 0xFFD3D4E1, 0xFFC7C9D8)); c.drawRect(0, segB, W, hb, p); p.setShader(null);
             p.setColor(0xFFA9ABBC); c.drawRect(0, hb - d(1), W, hb, p);
-            String hint = tab == 0 ? (count() == 0 ? " " : "Tap to Play, Hold for More") : "Tap to View Songs";
+            String hint = tab == 0 ? (count() == 0 ? " " : fk == F_PLAYLIST ? "Tap to Play, Hold to Reorder or Remove" : "Tap to Play, Hold for More") : tab == 3 ? "Tap to Open, Hold for More" : "Tap to View Songs";
             shadowText(c, hint, W / 2, segB + d(17.5f), d(13), 0xFF4E5568, 0xAAFFFFFF, d(1), false, Paint.Align.CENTER, W - d(20));
 
             // ----- bottom "iPod" toolbar -----
@@ -2178,7 +2950,7 @@ public class MainActivity extends Activity implements Player.Listener {
                 shadowText(c, all.isEmpty() ? "No Music" : "No Results", W / 2, listT + d(80), d(19), 0xFF6B7080, WHITE, d(1), true, Paint.Align.CENTER, 0);
                 shadowText(c, all.isEmpty() ? "Add songs to your phone, then Menu > Refresh" : "Tap " + bl + " to go back", W / 2, listT + d(104), d(13), 0xFF8A8F9E, WHITE, d(1), false, Paint.Align.CENTER, W - d(20));
             }
-            ArrayList<Song> songs = tab == 0 ? filtered() : null; ArrayList<String> names = tab == 1 ? artistNames() : tab == 2 ? albumNames() : null;
+            ArrayList<Song> songs = tab == 0 ? filtered() : null; ArrayList<String> names = tab == 1 ? artistNames() : tab == 2 ? albumNames() : tab == 3 ? playlistNames() : null;
             for (int i = Math.max(0, (int) (off / rowH)); i < n; i++) {
                 float ry = listT + i * rowH - off; if (ry > listB) break;
                 boolean dn = mode == 1 && pressRow == i && !moved;
@@ -2200,10 +2972,18 @@ public class MainActivity extends Activity implements Player.Listener {
                     else if (cu) pill(c, tmp, "PLAY", 0xFF79AAF2, 0xFF2D69D2, 0xFF22509F);
                     else pill(c, tmp, fmt(s.dur), 0xFF99A1B1, 0xFF6E778A, 0xFF59627A);
                 } else {
-                    String name = names.get(i); Song rep = repOf(tab == 1, name);
+                    if (tab == 3 && i == 0) {   // "+ New Playlist" row
+                        p.setShader(lg(0, tmp.top, 0, tmp.bottom, 0xFF8FB8F5, 0xFF2D69D2)); c.drawRect(tmp, p); p.setShader(null);
+                        shadowText(c, "+", tmp.centerX(), tmp.centerY() + d(13), d(38), WHITE, 0x55000000, -d(1), true, Paint.Align.CENTER, 0);
+                        shadowText(c, "New Playlist...", x, ry + rowH / 2 + d(6), d(16.5f), dn ? WHITE : 0xFF2D5FB8, 0, 0, true, Paint.Align.LEFT, W - x - d(34));
+                        continue;
+                    }
+                    String name = tab == 3 ? names.get(i - 1) : names.get(i);
+                    ArrayList<Song> pls = tab == 3 ? filter(F_PLAYLIST, name) : null;
+                    Song rep = tab == 3 ? (pls.isEmpty() ? null : pls.get(0)) : repOf(tab == 1, name);
                     artBox(c, tmp, rep);
                     shadowText(c, name, x, ry + d(28), d(15.5f), tc, 0, 0, true, Paint.Align.LEFT, W - x - d(34));
-                    String sub = tab == 1 ? songCount(name) + (songCount(name) == 1 ? " song" : " songs") : (rep == null ? "" : rep.artist);
+                    String sub = tab == 3 ? pls.size() + (pls.size() == 1 ? " song" : " songs") : tab == 1 ? songCount(name) + (songCount(name) == 1 ? " song" : " songs") : (rep == null ? "" : rep.artist);
                     shadowText(c, sub, x, ry + d(49), d(13.5f), sc, 0, 0, false, Paint.Align.LEFT, W - x - d(34));
                     float cx = W - d(18), cy = ry + rowH / 2;
                     p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(d(2.6f)); p.setStrokeCap(Paint.Cap.ROUND); p.setColor(dn ? WHITE : 0xFF7F8596);
@@ -2270,10 +3050,10 @@ public class MainActivity extends Activity implements Player.Listener {
         int rowAt(float y) { int i = (int) ((y - listT + off) / rowH); return y >= listT && y < listB && i >= 0 && i < count() ? i : -1; }
 
         final Runnable lp = new Runnable() { public void run() {
-            if (mode != 1 || moved || tab != 0) return;
-            int i = rowAt(downY); if (i < 0) return;
+            if (mode != 1 || moved || (tab != 0 && tab != 3)) return;
+            int i = rowAt(downY); if (i < 0 || (tab == 3 && i == 0)) return;
             lpFired = true; performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); invalidate();
-            songMenu(new ArrayList<>(filtered()), i);
+            if (tab == 3) playlistMenu(playlistNames().get(i - 1)); else songMenu(new ArrayList<>(filtered()), i);
         }};
 
         void tapRow(int i, float x) {
@@ -2281,6 +3061,11 @@ public class MainActivity extends Activity implements Player.Listener {
                 ArrayList<Song> l = filtered(); if (i >= l.size()) return;
                 if (l.get(i).equals(now()) && x > getWidth() - d(90)) toggle(); else playList(l, i);
             } else {
+                if (tab == 3) {
+                    if (i == 0) { newPlaylist(null); return; }
+                    ArrayList<String> n = playlistNames(); if (i - 1 >= n.size()) return;
+                    drill = 3; setFilter(F_PLAYLIST, n.get(i - 1)); return;
+                }
                 ArrayList<String> names = tab == 1 ? artistNames() : albumNames(); if (i >= names.size()) return;
                 drill = tab; setFilter(tab == 1 ? F_ARTIST : F_ALBUM, names.get(i));
             }
@@ -2293,7 +3078,7 @@ public class MainActivity extends Activity implements Player.Listener {
                     mode = 0; moved = false; lpFired = false; downY = y; lastY = y; pressed = -1; pressRow = -1; fl.down(e);
                     if (rBack.contains(x, y)) mode = 3;
                     else if (rMenu.contains(x, y)) mode = 4;
-                    else if (rSegAll.contains(x, y)) { for (int i = 0; i < 3; i++) if (rSeg[i].contains(x, y)) pressed = i; mode = 5; }
+                    else if (rSegAll.contains(x, y)) { for (int i = 0; i < 4; i++) if (rSeg[i].contains(x, y)) pressed = i; mode = 5; }
                     else if (x >= rSeek.left - d(16) && x <= rSeek.right + d(16) && y >= rSeek.top - d(16) && y <= rSeek.bottom + d(16)) { mode = 2; seekF = Math.max(0, Math.min(1, (x - rSeek.left) / rSeek.width())); }
                     else if (rFav.contains(x, y)) mode = 7;
                     else if (rPanel.contains(x, y)) { for (int i = 0; i < 5; i++) if (rCtl[i].contains(x, y)) { pressed = i; mode = 6; } }

@@ -58,6 +58,7 @@ public class PlaybackService extends Service implements Player.Listener {
         String a = i == null ? null : i.getAction();
         // A service started with startForegroundService must call startForeground right away.
         goForeground(build());
+        if ((A_TOGGLE.equals(a) || A_NEXT.equals(a) || A_PREV.equals(a)) && pl.now() == null) pl.restoreCold();
         if (A_TOGGLE.equals(a)) { if (!pl.toggle()) pl.play(); }
         else if (A_NEXT.equals(a)) pl.next(true);
         else if (A_PREV.equals(a)) pl.prev();
@@ -138,7 +139,11 @@ public class PlaybackService extends Service implements Player.Listener {
             try {
                 ex.execute(new Runnable() { public void run() {
                     final Bitmap b = Player.loadArt(PlaybackService.this, s, 512);
-                    h.post(new Runnable() { public void run() { if (artId == s.id && running) { art = b; if (b != null) changed(); } } });
+                    final Bitmap wb = b == null ? null : Bitmap.createScaledBitmap(b, 256, 256, true);
+                    h.post(new Runnable() { public void run() {
+                        TapeWidget.setArt(s.id, wb);
+                        if (artId == s.id && running) { art = b; if (b != null) changed(); }
+                    }});
                 }});
             } catch (Throwable e) { }
         }
